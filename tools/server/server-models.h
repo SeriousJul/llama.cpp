@@ -196,6 +196,8 @@ private:
     std::string bin_path;
     std::vector<std::string> base_env;
     common_preset base_preset; // base preset from llama-server CLI args
+    common_preset configured_global_preset;
+    common_presets configured_model_presets;
 
     // queue of requests waiting for a models_max slot
     std::unique_ptr<server_lru_sched> sched;
@@ -339,6 +341,7 @@ struct server_models_routes {
     server_http_context::handler_t proxy_post;
     server_http_context::handler_t get_router_models;
     server_http_context::handler_t post_router_models_load;
+    server_http_context::handler_t post_router_models_reload;
     server_http_context::handler_t post_router_models_unload;
     // management API
     server_http_context::handler_t get_router_models_sse;

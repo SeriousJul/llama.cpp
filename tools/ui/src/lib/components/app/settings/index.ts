@@ -74,3 +74,10 @@ export { default as SettingsChatFields } from './SettingsChat/SettingsChatFields
  * server favicons and permission management controls.
  */
 export { default as SettingsChatToolsTab } from './SettingsChat/SettingsChatToolsTab.svelte';
+
+/**
+ * Presets editor panel. Provides UI for viewing, editing, creating, and deleting
+ * preset INI sections. Supports type-aware field rendering (string, number,
+ * boolean toggle, list tags) and custom key-value pairs.
+ */
+export { default as SettingsPresets } from './SettingsPresets.svelte';

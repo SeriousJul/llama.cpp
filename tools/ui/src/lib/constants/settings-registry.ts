@@ -40,6 +40,7 @@ export const SETTINGS_SECTION_TITLES = {
 	GENERAL: 'General',
 	IMPORT_EXPORT: 'Import/Export',
 	PENALTIES: 'Penalties',
+	PRESETS: 'Presets',
 	SAMPLING: 'Sampling',
 	TOOLS: 'Tools'
 } as const;
@@ -50,7 +51,8 @@ const STANDALONE_SECTIONS: { title: SettingsSectionTitle; slug: string; icon: Co
 		icon: Database,
 		slug: SETTINGS_SECTION_SLUGS.IMPORT_EXPORT,
 		title: SETTINGS_SECTION_TITLES.IMPORT_EXPORT
-	}
+	},
+	{ icon: Sliders, slug: SETTINGS_SECTION_SLUGS.PRESETS, title: SETTINGS_SECTION_TITLES.PRESETS }
 ];
 const COLOR_MODE_OPTIONS: Array<{ value: string; label: string; icon: Component }> = [
 	{ icon: MonitorIcon, label: 'System', value: ColorMode.SYSTEM },

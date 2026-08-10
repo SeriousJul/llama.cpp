@@ -364,6 +364,42 @@ def test_router_api_key_required():
     assert "error" not in authed.body
 
 
+def test_router_models_returns_configured_preset_sections():
+    global server
+
+    preset_path = os.path.join(TMP_DIR, "test_sections.ini")
+    with open(preset_path, "w") as f:
+        f.write(
+            "[*]\n"
+            "context-shift = false\n"
+            "prio = 2\n"
+            "\n"
+            "[configured-model]\n"
+            "hf-repo = ggml-org/test-model-stories260K\n"
+            "parallel = 3\n"
+            "load-mode = mlock\n"
+        )
+
+    server.models_preset = preset_path
+    try:
+        server.start()
+        plain_res = server.make_request("GET", "/models")
+        assert plain_res.status_code == 200
+        assert "preset_sections" not in plain_res.body
+        assert "preset_options" not in plain_res.body
+
+        res = server.make_request("GET", "/models?presets=1")
+        assert res.status_code == 200
+        assert res.body["preset_sections"] == [
+            "[*]\ncontext-shift = false\nprio = 2\n\n",
+            "[configured-model]\nhf-repo = ggml-org/test-model-stories260K\nload-mode = mlock\nparallel = 3\n\n",
+        ]
+        option_keys = {option["key"] for option in res.body["preset_options"]}
+        assert {"context-shift", "prio", "parallel", "load-mode"} <= option_keys
+    finally:
+        os.remove(preset_path)
+
+
 def test_router_reload_models():
     """POST /models/reload re-reads the INI preset and updates the model list."""
     global server
@@ -398,7 +434,11 @@ def test_router_reload_models():
         )
 
     try:
-        ids = _get_model_ids(is_reload=True)
+        reload_res = server.make_request("POST", "/models/reload", data={})
+        assert reload_res.status_code == 200
+        assert reload_res.body == {"success": True}
+
+        ids = _get_model_ids(is_reload=False)
         assert "model-reload-a" not in ids, "removed model should no longer appear"
         assert "model-reload-b" in ids, "unchanged model should still appear"
         assert "model-reload-c" in ids, "newly added model should appear"

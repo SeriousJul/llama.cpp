@@ -520,6 +520,8 @@ void server_models::load_models() {
         SRV_INF("Loaded %zu custom model presets from %s\n", custom_presets.size(), base_params.models_preset.c_str());
     }
 
+    const common_presets configured_model_presets_new = custom_presets;
+
     // cascade, apply global preset first
     cached_models  = ctx_preset.cascade(global, cached_models);
     local_models   = ctx_preset.cascade(global, local_models);
@@ -604,6 +606,8 @@ void server_models::load_models() {
     // which locks the mutex, so joining while holding it would deadlock).
     std::unique_lock<std::mutex> lk(mutex);
 
+    configured_global_preset = global;
+    configured_model_presets = configured_model_presets_new;
     need_reload = false;
     bool is_first_load = mapping.empty();
 
@@ -1918,6 +1922,7 @@ void server_models_routes::init_routes() {
 
     this->get_router_models = [this](const server_http_req & req) {
         bool reload = !req.get_param("reload", "").empty();
+        bool include_presets = !req.get_param("presets", "").empty();
         if (reload) {
             models.load_models();
         }
@@ -1982,10 +1987,89 @@ void server_models_routes::init_routes() {
             }
             models_json.push_back(model_info);
         }
-        res_ok(res, {
-            {"data", models_json},
+        json response_body = {
+            {"data",   models_json},
             {"object", "list"},
-        });
+        };
+        if (!include_presets) {
+            res_ok(res, response_body);
+            return res;
+        }
+
+        common_preset configured_global_preset;
+        common_presets configured_model_presets;
+        {
+            std::lock_guard<std::mutex> lock(models.mutex);
+            configured_global_preset = models.configured_global_preset;
+            configured_model_presets = models.configured_model_presets;
+        }
+        json preset_sections = json::array();
+        if (!configured_global_preset.name.empty()) {
+            preset_sections.push_back(configured_global_preset.to_ini());
+        }
+        for (const auto & [name, preset] : configured_model_presets) {
+            preset_sections.push_back(preset.to_ini());
+        }
+
+        static const std::set<std::string> excluded_preset_options = {
+            "usage",
+            "version",
+            "cache-list",
+            "completion-bash",
+            "list-devices",
+            "fit-print",
+            "host",
+            "port",
+            "api-key",
+            "api-key-file",
+            "ssl-key-file",
+            "ssl-cert-file",
+            "models-dir",
+            "models-preset",
+            "models-max",
+            "models-autoload",
+        };
+        json preset_options = json::array();
+        for (const auto & option : models.ctx_preset.ctx_params.options) {
+            if (option.args.empty() || option.handler_str_str != nullptr) {
+                continue;
+            }
+            std::string key = option.args.back();
+            key.erase(0, key.find_first_not_of('-'));
+            if (excluded_preset_options.find(key) != excluded_preset_options.end()) {
+                continue;
+            }
+            json args = json::array();
+            for (const char * arg : option.args) {
+                args.push_back(arg);
+            }
+            for (const char * arg : option.args_neg) {
+                args.push_back(arg);
+            }
+            const char * type = option.handler_int != nullptr ? "number"
+                    : option.handler_bool != nullptr || option.handler_void != nullptr ? "boolean"
+                    : "string";
+            preset_options.push_back({
+                {"key",         key},
+                {"args",        args},
+                {"value_hint",  option.value_hint == nullptr ? "" : option.value_hint},
+                {"description", option.help},
+                {"type",        type},
+                {"sampling",    option.is_sampling},
+                {"speculative", option.is_spec},
+            });
+        }
+
+        response_body["preset_sections"] = std::move(preset_sections);
+        response_body["preset_options"] = std::move(preset_options);
+        res_ok(res, response_body);
+        return res;
+    };
+
+    this->post_router_models_reload = [this](const server_http_req &) {
+        auto res = std::make_unique<server_http_res>();
+        models.load_models();
+        res_ok(res, {{"success", true}});
         return res;
     };
 

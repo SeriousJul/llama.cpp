@@ -18,6 +18,7 @@ export const SETTINGS_SECTION_SLUGS = {
 	GENERAL: 'general',
 	IMPORT_EXPORT: 'import-export',
 	PENALTIES: 'penalties',
+	PRESETS: 'presets',
 	SAMPLING: 'sampling',
 	TOOLS: 'tools'
 } as const;
