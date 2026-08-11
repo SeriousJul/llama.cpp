@@ -58,6 +58,7 @@ int main(int argc, char ** argv) {
     }
 
     llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
     const int n_iters = 3;
 

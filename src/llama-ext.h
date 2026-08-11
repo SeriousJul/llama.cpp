@@ -88,6 +88,14 @@ LLAMA_API int32_t llama_model_n_devices(const struct llama_model * model);
 
 LLAMA_API ggml_backend_dev_t llama_model_get_device(const struct llama_model * model, int i);
 
+struct llama_moe_weight_inventory {
+    size_t   total_bytes;
+    size_t   largest_expert_bytes;
+    uint32_t n_tensors;
+};
+
+LLAMA_API llama_moe_weight_inventory llama_model_moe_weight_inventory(const struct llama_model * model);
+
 LLAMA_API llama_memory_breakdown llama_get_memory_breakdown(const struct llama_context * ctx);
 
 // Set whether the context outputs nextn embeddings or not

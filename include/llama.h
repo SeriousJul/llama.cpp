@@ -211,6 +211,12 @@ extern "C" {
         LLAMA_LOAD_MODE_DIRECT_IO  =  4, // use direct I/O if available
     };
 
+    enum llama_moe_cache_mode {
+        LLAMA_MOE_CACHE_MODE_OFF        = 0,
+        LLAMA_MOE_CACHE_MODE_AUTO       = 1,
+        LLAMA_MOE_CACHE_MODE_GENERATION = 2,
+    };
+
     LLAMA_API const char * llama_load_mode_name(enum llama_load_mode load_mode);
     LLAMA_API enum llama_load_mode llama_load_mode_from_str(const char * str);
 
@@ -237,6 +243,14 @@ extern "C" {
 
     typedef bool (*llama_progress_callback)(float progress, void * user_data);
 
+    enum llama_batch_phase {
+        LLAMA_BATCH_PHASE_UNSPECIFIED  = 0,
+        LLAMA_BATCH_PHASE_PROMPT       = 1,
+        LLAMA_BATCH_PHASE_GENERATION   = 2,
+        LLAMA_BATCH_PHASE_VERIFICATION = 3,
+        LLAMA_BATCH_PHASE_MIXED        = 4,
+    };
+
     // Input data for llama_encode/llama_decode
     // A llama_batch object can contain input about one or many sequences
     // The provided arrays (i.e. token, embd, pos, etc.) must have size of n_tokens
@@ -262,6 +276,7 @@ extern "C" {
         int32_t      *  n_seq_id;
         llama_seq_id ** seq_id;
         int8_t       *  logits;   // TODO: rename this to "output"
+        enum llama_batch_phase phase;
     } llama_batch;
 
     enum llama_model_kv_override_type {
@@ -331,6 +346,11 @@ extern "C" {
 
         // override key-value pairs of the model meta data
         const struct llama_model_kv_override * kv_overrides;
+
+        enum llama_moe_cache_mode moe_cache_mode;
+        size_t                    moe_cache_vram_mib;          // per-device L1 ceiling, 0 = automatic
+        size_t                    moe_cache_ram_mib;           // process L2 ceiling, 0 = automatic
+        size_t                    moe_cache_host_reserve_mib;  // host memory safety margin, 0 = automatic
 
         // Keep the booleans together to avoid misalignment during copy-by-value.
         bool vocab_only;      // only load the vocabulary, no weights
@@ -1569,6 +1589,17 @@ extern "C" {
         int32_t n_p_eval;   // number of prompt tokens
         int32_t n_eval;     // number of generated tokens
         int32_t n_reused;   // number of times a ggml compute graph had been reused
+
+        uint64_t moe_cache_l1_bytes;
+        uint64_t moe_cache_l2_bytes;
+        uint64_t moe_cache_l1_hits;
+        uint64_t moe_cache_l2_hits;
+        uint64_t moe_cache_l3_read_count;
+        uint64_t moe_cache_l3_logical_bytes;
+        uint64_t moe_cache_l3_physical_bytes;
+        uint64_t moe_cache_l1_evictions;
+        uint64_t moe_cache_l2_evictions;
+        uint64_t moe_cache_l3_wait_us;
     };
 
     struct llama_perf_sampler_data {

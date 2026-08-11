@@ -112,6 +112,7 @@ int main(int argc, char ** argv) {
 
         // prepare a batch for the prompt
         llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
+        batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
         llama_token new_token_id;
         while (true) {
             // check if we have enough space in the context to evaluate this batch
@@ -149,6 +150,7 @@ int main(int argc, char ** argv) {
 
             // prepare the next batch with the sampled token
             batch = llama_batch_get_one(&new_token_id, 1);
+            batch.phase = LLAMA_BATCH_PHASE_GENERATION;
         }
 
         return response;

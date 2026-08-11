@@ -147,6 +147,7 @@ int main(int argc, char ** argv) {
     // prepare a batch for the prompt
 
     llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
     if (llama_model_has_encoder(model)) {
         if (llama_encode(ctx, batch)) {
@@ -160,6 +161,7 @@ int main(int argc, char ** argv) {
         }
 
         batch = llama_batch_get_one(&decoder_start_token_id, 1);
+        batch.phase = LLAMA_BATCH_PHASE_GENERATION;
     }
 
     // main loop
@@ -198,6 +200,7 @@ int main(int argc, char ** argv) {
 
             // prepare the next batch with the sampled token
             batch = llama_batch_get_one(&new_token_id, 1);
+            batch.phase = LLAMA_BATCH_PHASE_GENERATION;
 
             n_decode += 1;
         }

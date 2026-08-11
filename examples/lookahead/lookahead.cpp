@@ -101,8 +101,12 @@ int main(int argc, char ** argv) {
     const auto t_enc_start = ggml_time_us();
 
     // eval the prompt
-    llama_decode(ctx, llama_batch_get_one( inp.data(), n_input - 1));
-    llama_decode(ctx, llama_batch_get_one(&inp.back(),           1));
+    llama_batch prompt_batch = llama_batch_get_one(inp.data(), n_input - 1);
+    prompt_batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx, prompt_batch);
+    prompt_batch       = llama_batch_get_one(&inp.back(), 1);
+    prompt_batch.phase = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx, prompt_batch);
 
     for (int s = 1; s < W + G + 1; ++s) {
         llama_memory_seq_cp(mem, 0, s, -1, -1);
@@ -125,6 +129,7 @@ int main(int argc, char ** argv) {
     // seq_id [1, W]         : tokens from the past N - 1 Jacobi iterations
     // seq_id [W + 1, W + G] : verification n-grams
     llama_batch batch = llama_batch_init(llama_n_ctx(ctx), 0, W + G + 1);
+    batch.phase       = LLAMA_BATCH_PHASE_VERIFICATION;
 
     // target model sampling context
     struct common_sampler * smpl = common_sampler_init(model, params.sampling);

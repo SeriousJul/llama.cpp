@@ -98,8 +98,12 @@ int main(int argc, char ** argv){
 
     const auto t_enc_start = ggml_time_us();
 
-    llama_decode(ctx, llama_batch_get_one( inp.data(), n_input - 1));
-    llama_decode(ctx, llama_batch_get_one(&inp.back(),           1));
+    llama_batch prompt_batch = llama_batch_get_one(inp.data(), n_input - 1);
+    prompt_batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx, prompt_batch);
+    prompt_batch       = llama_batch_get_one(&inp.back(), 1);
+    prompt_batch.phase = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx, prompt_batch);
 
     const auto t_enc_end = ggml_time_us();
 
@@ -116,6 +120,7 @@ int main(int argc, char ** argv){
     std::vector<llama_token> draft;
 
     llama_batch batch_tgt = llama_batch_init(llama_n_ctx(ctx), 0, 1);
+    batch_tgt.phase       = LLAMA_BATCH_PHASE_VERIFICATION;
 
     const auto t_dec_start = ggml_time_us();
 

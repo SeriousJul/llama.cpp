@@ -303,6 +303,7 @@ static std::vector<float> get_logits(
     const uint32_t n_ctx    = llama_n_ctx(lctx);
     const uint32_t n_tokens = tokens.size();
     llama_batch batch = llama_batch_init(n_ctx, 0, 1);
+    batch.phase             = LLAMA_BATCH_PHASE_PROMPT;
     GGML_ASSERT(n_tokens <= n_ctx);
     for (uint32_t pos = 0; pos < n_tokens; pos++) {
         common_batch_add(batch, tokens[pos], pos, {0}, true);

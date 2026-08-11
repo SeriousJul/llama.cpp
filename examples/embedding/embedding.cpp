@@ -243,6 +243,7 @@ int main(int argc, char ** argv) {
     // initialize batch
     const int n_prompts = prompts.size();
     struct llama_batch batch = llama_batch_init(n_batch, 0, 1);
+    batch.phase                  = LLAMA_BATCH_PHASE_PROMPT;
 
     // count number of embeddings
     int n_embd_count = 0;

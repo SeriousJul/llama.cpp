@@ -139,8 +139,10 @@ int main(int argc, char ** argv) {
     common_sampler_ptr smpl(common_sampler_init(model_tgt, params.sampling));
 
     // eval the prompt
-    llama_decode(ctx_tgt,       llama_batch_get_one(inp.data(), inp.size() - 1));
-    llama_decode(ctx_dft.get(), llama_batch_get_one(inp.data(), inp.size() - 1));
+    llama_batch prompt_batch = llama_batch_get_one(inp.data(), inp.size() - 1);
+    prompt_batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx_tgt, prompt_batch);
+    llama_decode(ctx_dft.get(), prompt_batch);
 
     // note: keep the last token separate!
     llama_token id_last = inp.back();
@@ -159,6 +161,7 @@ int main(int argc, char ** argv) {
     common_speculative_begin(spec, seq_id, prompt_tgt);
 
     llama_batch batch_tgt = llama_batch_init(llama_n_batch(ctx_tgt), 0, 1);
+    batch_tgt.phase       = LLAMA_BATCH_PHASE_VERIFICATION;
 
     size_t n_draft = 0;
 

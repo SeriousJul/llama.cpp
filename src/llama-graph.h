@@ -780,16 +780,11 @@ struct llm_graph_params {
     bool allow_reuse(const llm_graph_params & other) const {
         // first check the ubatch
         bool can_reuse_ubatch =
-            ubatch.equal_seqs() == other.ubatch.equal_seqs() &&
-            ubatch.n_tokens     == other.ubatch.n_tokens &&
-            ubatch.n_seq_tokens == other.ubatch.n_seq_tokens &&
-            ubatch.n_seqs       == other.ubatch.n_seqs &&
-            ubatch.n_seqs_unq   == other.ubatch.n_seqs_unq &&
-            (
-                (!ubatch.token && !other.ubatch.token) ||
-                (!ubatch.embd  && !other.ubatch.embd)  ||
-                (ubatch.token && other.ubatch.token && ubatch.embd && other.ubatch.embd)
-            );
+            ubatch.equal_seqs() == other.ubatch.equal_seqs() && ubatch.n_tokens == other.ubatch.n_tokens &&
+            ubatch.n_seq_tokens == other.ubatch.n_seq_tokens && ubatch.n_seqs == other.ubatch.n_seqs &&
+            ubatch.n_seqs_unq == other.ubatch.n_seqs_unq && ubatch.phase == other.ubatch.phase &&
+            ((!ubatch.token && !other.ubatch.token) || (!ubatch.embd && !other.ubatch.embd) ||
+             (ubatch.token && other.ubatch.token && ubatch.embd && other.ubatch.embd));
 
         // when we split the batch using "equal_seqs" we have to verify that the participating sequences are the same
         //   the reason is because the set of attention streams would be different for different sequences

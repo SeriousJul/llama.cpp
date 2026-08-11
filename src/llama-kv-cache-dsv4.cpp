@@ -149,22 +149,23 @@ static llama_ubatch dsv4_build_raw_write_ubatch(const llama_ubatch & ubatch) {
         data->seq_id.push_back(&data->seq_id_data[i]);
     }
 
-    llama_ubatch res {
-        /*.b_equal_seqs =*/ true,
-        /*.n_tokens     =*/ n_tokens,
-        /*.n_seq_tokens =*/ n_seq_tokens,
-        /*.n_seqs       =*/ ubatch.n_seqs_unq,
-        /*.n_seqs_unq   =*/ ubatch.n_seqs_unq,
-        /*.n_pos        =*/ ubatch.n_pos,
-        /*.token        =*/ data->token.empty() ? nullptr : data->token.data(),
-        /*.embd         =*/ nullptr,
-        /*.pos          =*/ data->pos.data(),
-        /*.n_seq_id     =*/ data->n_seq_id.data(),
-        /*.seq_id       =*/ data->seq_id.data(),
-        /*.seq_id_unq   =*/ data->seq_id_unq.data(),
-        /*.seq_idx      =*/ data->seq_idx.data(),
-        /*.output       =*/ data->output.data(),
-        /*.data         =*/ data,
+    llama_ubatch res{
+        /*.b_equal_seqs =*/true,
+        /*.n_tokens     =*/n_tokens,
+        /*.n_seq_tokens =*/n_seq_tokens,
+        /*.n_seqs       =*/ubatch.n_seqs_unq,
+        /*.n_seqs_unq   =*/ubatch.n_seqs_unq,
+        /*.n_pos        =*/ubatch.n_pos,
+        /*.phase        =*/ubatch.phase,
+        /*.token        =*/data->token.empty() ? nullptr : data->token.data(),
+        /*.embd         =*/nullptr,
+        /*.pos          =*/data->pos.data(),
+        /*.n_seq_id     =*/data->n_seq_id.data(),
+        /*.seq_id       =*/data->seq_id.data(),
+        /*.seq_id_unq   =*/data->seq_id_unq.data(),
+        /*.seq_idx      =*/data->seq_idx.data(),
+        /*.output       =*/data->output.data(),
+        /*.data         =*/data,
     };
 
     return res;

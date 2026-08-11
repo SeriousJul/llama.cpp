@@ -1,35 +1,34 @@
 #include "llama-model.h"
 
+#include "ggml-cpp.h"
+#include "ggml.h"
 #include "llama-arch.h"
+#include "llama-cparams.h"
 #include "llama-ext.h"
 #include "llama-hparams.h"
 #include "llama-impl.h"
-#include "llama-mmap.h"
-#include "llama-cparams.h"
-#include "llama-model-loader.h"
-
-#include "llama-kv-cache.h"
-#include "llama-kv-cache-iswa.h"
 #include "llama-kv-cache-dsa.h"
-#include "llama-kv-cache-msa.h"
 #include "llama-kv-cache-dsv4.h"
-#include "llama-memory-hybrid.h"
+#include "llama-kv-cache-iswa.h"
+#include "llama-kv-cache-msa.h"
+#include "llama-kv-cache.h"
 #include "llama-memory-hybrid-iswa.h"
+#include "llama-memory-hybrid.h"
 #include "llama-memory-recurrent.h"
-
+#include "llama-mmap.h"
+#include "llama-model-loader.h"
 #include "llama.h"
 #include "models/models.h"
-
-#include "ggml.h"
-#include "ggml-cpp.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cfloat>
-#include <cstdint>
-#include <cstring>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <functional>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <regex>
@@ -37,6 +36,10 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#if defined(__linux__)
+#    include <sys/sysinfo.h>
+#endif
 
 static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params & params) {
     switch (arch) {
@@ -1009,6 +1012,56 @@ static buft_list_t make_gpu_buft_list(ggml_backend_dev_t dev, llama_split_mode s
     return buft_list;
 }
 
+static void llama_model_moe_cache_incompatible(llama_model_params & params, const std::string & reason);
+
+static bool llama_model_use_demand_mmap(const llama_model_loader & ml, const llama_model_params & params) {
+#if defined(__linux__)
+    if (params.moe_cache_mode != LLAMA_MOE_CACHE_MODE_OFF) {
+        return true;
+    }
+
+    size_t mem_available = 0;
+    FILE * meminfo       = std::fopen("/proc/meminfo", "r");
+    if (meminfo != nullptr) {
+        char               key[64];
+        unsigned long long value_kib;
+        char               unit[16];
+        while (std::fscanf(meminfo, "%63s %llu %15s", key, &value_kib, unit) == 3) {
+            if (std::strcmp(key, "MemAvailable:") == 0) {
+                if (value_kib <= std::numeric_limits<size_t>::max() / 1024) {
+                    mem_available = size_t(value_kib) * 1024;
+                }
+                break;
+            }
+        }
+        std::fclose(meminfo);
+    }
+    if (mem_available == 0) {
+        return false;
+    }
+
+    size_t         total_memory = 0;
+    struct sysinfo info{};
+    if (sysinfo(&info) == 0 && info.totalram <= std::numeric_limits<size_t>::max() / info.mem_unit) {
+        total_memory = size_t(info.totalram) * info.mem_unit;
+    }
+    constexpr size_t gib          = 1024ULL * 1024ULL * 1024ULL;
+    constexpr size_t mib          = 1024ULL * 1024ULL;
+    size_t           host_reserve = std::max<size_t>(8 * gib, total_memory / 10);
+    if (params.moe_cache_host_reserve_mib != 0) {
+        if (params.moe_cache_host_reserve_mib > std::numeric_limits<size_t>::max() / mib) {
+            return true;
+        }
+        host_reserve = params.moe_cache_host_reserve_mib * mib;
+    }
+    return mem_available <= host_reserve || ml.size_data > mem_available - host_reserve;
+#else
+    GGML_UNUSED(ml);
+    GGML_UNUSED(params);
+    return false;
+#endif
+}
+
 struct llama_model::impl {
     impl() = default;
     ~impl() = default;
@@ -1023,6 +1076,9 @@ struct llama_model::impl {
 
     // model memory mapped files
     llama_mmaps mappings;
+    llama_files                        moe_cache_files;
+    std::vector<llama_tensor_source>   tensor_sources;
+    std::vector<ggml_moe_cache_source> moe_cache_sources;
 
     // objects representing data potentially being locked in memory
     llama_mlocks mlock_bufs;
@@ -1550,7 +1606,15 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
         }
     }
 
-    ml.init_mappings(true, use_mlock ? &pimpl->mlock_mmaps : nullptr);
+    if (params.moe_cache_mode != LLAMA_MOE_CACHE_MODE_OFF && !ml.no_alloc) {
+        std::string error;
+        if (!ml.init_moe_cache_sources(error)) {
+            llama_model_moe_cache_incompatible(params, error);
+        }
+    }
+    const llama_mmap_policy mmap_policy =
+        llama_model_use_demand_mmap(ml, params) ? LLAMA_MMAP_POLICY_DEMAND : LLAMA_MMAP_POLICY_STOCK;
+    ml.init_mappings(mmap_policy, use_mlock ? &pimpl->mlock_mmaps : nullptr);
     pimpl->mappings.reserve(ml.mappings.size());
 
     // create the backend buffers
@@ -1644,6 +1708,30 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
         ctx_buf_maps.emplace_back(ctx, buf_map);
     }
 
+    if (params.moe_cache_mode != LLAMA_MOE_CACHE_MODE_OFF && !ml.no_alloc) {
+        pimpl->tensor_sources.reserve(tensors_by_name.size());
+        pimpl->moe_cache_sources.reserve(tensors_by_name.size());
+        uint32_t source_id = 0;
+        for (const auto & named_tensor : tensors_by_name) {
+            const ggml_tensor * tensor = named_tensor.second;
+            llama_tensor_source tensor_source{};
+            if (ml.get_tensor_source(tensor, source_id, tensor_source)) {
+                pimpl->tensor_sources.push_back(std::move(tensor_source));
+            }
+            ggml_moe_cache_source source{};
+            if (ml.get_moe_cache_source(tensor, hparams.n_expert, source_id, source)) {
+                pimpl->moe_cache_sources.push_back(source);
+            }
+            source_id++;
+        }
+        if (pimpl->moe_cache_sources.empty()) {
+            llama_model_moe_cache_incompatible(
+                params, "no packed routed expert tensor has a verified direct-I/O source");
+        } else {
+            pimpl->moe_cache_files = std::move(ml.moe_cache_files);
+        }
+    }
+
     if (llama_supports_gpu_offload()) {
         const int n_gpu = std::min(n_gpu_layers, n_layer_all);
 
@@ -1684,6 +1772,8 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
             pimpl->mappings.emplace_back(std::move(mapping));
         }
     }
+
+    finish_moe_cache_load();
 
     return true;
 }
@@ -2036,6 +2126,104 @@ ggml_backend_buffer_type_t llama_model::select_buft(int il) const {
 
 bool llama_model::has_tensor_overrides() const {
     return pimpl->has_tensor_overrides;
+}
+
+static void llama_model_moe_cache_incompatible(llama_model_params & params, const std::string & reason) {
+    if (params.moe_cache_mode == LLAMA_MOE_CACHE_MODE_GENERATION) {
+        throw std::runtime_error("strict MoE cache requirement failed: " + reason);
+    }
+    LLAMA_LOG_WARN("llama_model: disabling MoE cache: %s\n", reason.c_str());
+    params.moe_cache_mode = LLAMA_MOE_CACHE_MODE_OFF;
+}
+
+void llama_model::prepare_moe_cache_load() {
+    if (params.moe_cache_mode == LLAMA_MOE_CACHE_MODE_OFF) {
+        return;
+    }
+#if !defined(GGML_MOE_CACHE)
+    llama_model_moe_cache_incompatible(params, "this build does not include GGML_MOE_CACHE");
+    return;
+#endif
+#if !defined(__linux__)
+    llama_model_moe_cache_incompatible(params, "Linux is required");
+    return;
+#endif
+    if (hparams.n_expert == 0) {
+        llama_model_moe_cache_incompatible(params, "the model has no routed experts");
+        return;
+    }
+    const bool has_cuda = std::any_of(devices.begin(), devices.end(), [](const llama_device & device) {
+        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(device.dev);
+        return reg != nullptr && std::strcmp(ggml_backend_reg_name(reg), "CUDA") == 0;
+    });
+    if (!has_cuda) {
+        llama_model_moe_cache_incompatible(params, "no CUDA device is selected");
+        return;
+    }
+    if (hparams.no_alloc) {
+        params.use_extra_bufts = false;
+        return;
+    }
+    if (params.load_mode != LLAMA_LOAD_MODE_AUTO && params.load_mode != LLAMA_LOAD_MODE_MMAP) {
+        llama_model_moe_cache_incompatible(params, "the selected load mode is not read-only mmap");
+        return;
+    }
+    if (params.no_host) {
+        llama_model_moe_cache_incompatible(params, "no-host placement cannot preserve mmap-backed host weights");
+        return;
+    }
+    params.load_mode       = LLAMA_LOAD_MODE_MMAP;
+    params.use_extra_bufts = false;
+}
+
+void llama_model::finish_moe_cache_load() {
+    if (params.moe_cache_mode == LLAMA_MOE_CACHE_MODE_OFF || hparams.no_alloc) {
+        return;
+    }
+
+    bool has_host_expert = false;
+    for (const auto & named_tensor : tensors_by_name) {
+        const std::string & name   = named_tensor.first;
+        const ggml_tensor * tensor = named_tensor.second;
+        if (tensor->buffer == nullptr || !ggml_backend_buffer_is_host(tensor->buffer)) {
+            continue;
+        }
+        const size_t nbytes = ggml_nbytes(tensor);
+        const bool mapped = std::any_of(pimpl->mappings.begin(), pimpl->mappings.end(),
+                                        [&](const auto & mapping) { return mapping->contains(tensor->data, nbytes); });
+        if (!mapped) {
+            llama_model_moe_cache_incompatible(
+                params, format("host weight '%s' in buffer '%s' is not backed by a retained read-only model mapping",
+                               name.c_str(), ggml_backend_buffer_name(tensor->buffer)));
+            return;
+        }
+        if (ggml_n_dims(tensor) >= 3 && tensor->ne[2] == hparams.n_expert && ggml_is_contiguous(tensor)) {
+            has_host_expert = true;
+        }
+    }
+    if (!has_host_expert) {
+        llama_model_moe_cache_incompatible(params, "no host-resident packed routed expert tensor is available");
+    }
+}
+
+enum llama_moe_cache_mode llama_model::moe_cache_mode() const {
+    return params.moe_cache_mode;
+}
+
+size_t llama_model::moe_cache_vram_mib() const {
+    return params.moe_cache_vram_mib;
+}
+
+size_t llama_model::moe_cache_ram_mib() const {
+    return params.moe_cache_ram_mib;
+}
+
+size_t llama_model::moe_cache_host_reserve_mib() const {
+    return params.moe_cache_host_reserve_mib;
+}
+
+const std::vector<ggml_moe_cache_source> & llama_model::moe_cache_sources() const {
+    return pimpl->moe_cache_sources;
 }
 
 const ggml_tensor * llama_model::get_tensor(const char * name) const {
@@ -2463,22 +2651,26 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
 
 llama_model_params llama_model_default_params() {
     llama_model_params result = {
-        /*.devices                     =*/ nullptr,
-        /*.tensor_buft_overrides       =*/ nullptr,
-        /*.n_gpu_layers                =*/ -1,
-        /*.split_mode                  =*/ LLAMA_SPLIT_MODE_LAYER,
-        /*.load_mode                   =*/ LLAMA_LOAD_MODE_AUTO,
-        /*.main_gpu                    =*/ 0,
-        /*.tensor_split                =*/ nullptr,
-        /*.progress_callback           =*/ nullptr,
-        /*.progress_callback_user_data =*/ nullptr,
-        /*.kv_overrides                =*/ nullptr,
-        /*.vocab_only                  =*/ false,
-        /*.check_tensors               =*/ false,
-        /*.use_extra_bufts             =*/ true,
-        /*.no_host                     =*/ false,
-        /*.no_alloc                    =*/ false,
-        /*.load_mtp                    =*/ false,
+        /*.devices                     =*/nullptr,
+        /*.tensor_buft_overrides       =*/nullptr,
+        /*.n_gpu_layers                =*/-1,
+        /*.split_mode                  =*/LLAMA_SPLIT_MODE_LAYER,
+        /*.load_mode                   =*/LLAMA_LOAD_MODE_AUTO,
+        /*.main_gpu                    =*/0,
+        /*.tensor_split                =*/nullptr,
+        /*.progress_callback           =*/nullptr,
+        /*.progress_callback_user_data =*/nullptr,
+        /*.kv_overrides                =*/nullptr,
+        /*.moe_cache_mode              =*/LLAMA_MOE_CACHE_MODE_AUTO,
+        /*.moe_cache_vram_mib          =*/0,
+        /*.moe_cache_ram_mib           =*/0,
+        /*.moe_cache_host_reserve_mib  =*/0,
+        /*.vocab_only                  =*/false,
+        /*.check_tensors               =*/false,
+        /*.use_extra_bufts             =*/true,
+        /*.no_host                     =*/false,
+        /*.no_alloc                    =*/false,
+        /*.load_mtp                    =*/false,
     };
 
     return result;
@@ -2876,6 +3068,25 @@ const std::vector<std::pair<std::string, ggml_tensor *>> & llama_internal_get_te
 
 int32_t llama_model_n_expert(const struct llama_model * model) {
     return model->hparams.n_expert;
+}
+
+llama_moe_weight_inventory llama_model_moe_weight_inventory(const struct llama_model * model) {
+    llama_moe_weight_inventory result = {};
+    if (model->hparams.n_expert == 0) {
+        return result;
+    }
+
+    for (const auto & named_tensor : model->tensors_by_name) {
+        const ggml_tensor * tensor = named_tensor.second;
+        if (ggml_n_dims(tensor) < 3 || tensor->ne[2] != model->hparams.n_expert || !ggml_is_contiguous(tensor)) {
+            continue;
+        }
+        const size_t tensor_bytes = ggml_nbytes(tensor);
+        result.total_bytes += tensor_bytes;
+        result.largest_expert_bytes = std::max(result.largest_expert_bytes, tensor_bytes / model->hparams.n_expert);
+        result.n_tensors++;
+    }
+    return result;
 }
 
 int32_t llama_model_n_devices(const struct llama_model * model) {

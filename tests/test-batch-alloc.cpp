@@ -1,10 +1,9 @@
-#include "testing.h"
-
-#include "llama.h"
-
 #include "../src/llama-batch.h"
+#include "../src/llama-graph.h"
 #include "../src/llama-memory.h"
 #include "../src/llama-vocab.h"
+#include "llama.h"
+#include "testing.h"
 
 #include <cstdlib>
 #include <initializer_list>
@@ -88,6 +87,7 @@ struct batch_builder {
         res.n_seq_id = with_seq    ? n_seq_id.data() : nullptr;
         res.seq_id   = with_seq    ? seq_ptr.data()  : nullptr;
         res.logits   = with_logits ? logits.data()   : nullptr;
+        res.phase       = LLAMA_BATCH_PHASE_UNSPECIFIED;
 
         return res;
     }
@@ -107,6 +107,7 @@ static void test_init(testing & t) {
     t.test("rejects_invalid_token", [&](testing & t) {
         llama_token tok = 0; // empty vocab -> every token id is out of range
         llama_batch batch = llama_batch_get_one(&tok, 1);
+        batch.phase       = LLAMA_BATCH_PHASE_UNSPECIFIED;
 
         llama_batch_allocr ba(1);
         t.assert_true("token id >= n_tokens", !ba.init(batch, vocab, nullptr, 0, 1, false));
@@ -650,6 +651,16 @@ static void test_mrope(testing & t) {
     });
 }
 
+static void test_graph_phase(testing & t) {
+    llm_graph_params prompt{};
+    prompt.ubatch.phase         = LLAMA_BATCH_PHASE_PROMPT;
+    llm_graph_params generation = prompt;
+    generation.ubatch.phase     = LLAMA_BATCH_PHASE_GENERATION;
+
+    t.assert_true("identical prompt phase is reusable", prompt.allow_reuse(prompt));
+    t.assert_true("prompt and generation phases are not reusable", !prompt.allow_reuse(generation));
+}
+
 int main(int argc, char ** argv) {
     testing t;
 
@@ -669,6 +680,7 @@ int main(int argc, char ** argv) {
     t.test("split",     test_split);
     t.test("keep_tail", test_keep_tail);
     t.test("mrope",     test_mrope);
+    t.test("graph_phase", test_graph_phase);
 
     return t.summary();
 }

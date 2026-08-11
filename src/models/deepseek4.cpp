@@ -655,12 +655,16 @@ ggml_tensor * llama_model_deepseek4::graph::build_lid_top_k(
     GGML_ASSERT(n_lid > 0);
     GGML_ASSERT(n_lid <= indexer_k->ne[2]);
 
+    const int64_t n_stream = inp_lid.kq_mask->ne[3];
+    GGML_ASSERT(n_stream > 0);
+    GGML_ASSERT(n_stream <= indexer_k->ne[3]);
     indexer_k = ggml_view_4d(ctx0, indexer_k,
-            indexer_k->ne[0], indexer_k->ne[1], n_lid, indexer_k->ne[3],
+            indexer_k->ne[0], indexer_k->ne[1], n_lid, n_stream,
             indexer_k->nb[1], indexer_k->nb[2], indexer_k->nb[3], 0);
     cb(indexer_k, "lid_k", il);
 
-    const int64_t n_stream = indexer_k->ne[3];
+    GGML_ASSERT(indexer_q->ne[2] % n_stream == 0);
+    GGML_ASSERT(indexer_weights->ne[1] % n_stream == 0);
     indexer_q = ggml_view_4d(ctx0, indexer_q,
             indexer_q->ne[0], indexer_q->ne[1], indexer_q->ne[2]/n_stream, n_stream,
             indexer_q->nb[1], indexer_q->nb[2], indexer_q->nb[3]/n_stream, 0);

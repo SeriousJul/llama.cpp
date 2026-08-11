@@ -165,6 +165,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_benchModel(JNIEnv *env, jobject
         LOGi("Benchmark prompt processing (pp = %d)", pp);
 
         common_batch_clear(g_batch);
+        g_batch.phase = LLAMA_BATCH_PHASE_PROMPT;
 
         const int n_tokens = pp;
         for (i = 0; i < n_tokens; i++) {
@@ -188,6 +189,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_benchModel(JNIEnv *env, jobject
         const auto t_tg_start = ggml_time_us();
         for (i = 0; i < tg; i++) {
             common_batch_clear(g_batch);
+            g_batch.phase = LLAMA_BATCH_PHASE_GENERATION;
             for (j = 0; j < pl; j++) {
                 common_batch_add(g_batch, 0, i, {j}, true);
             }
@@ -324,6 +326,7 @@ static int decode_tokens_in_batches(
     for (int i = 0; i < (int) tokens.size(); i += BATCH_SIZE) {
         const int cur_batch_size = std::min((int) tokens.size() - i, BATCH_SIZE);
         common_batch_clear(batch);
+        batch.phase = LLAMA_BATCH_PHASE_PROMPT;
         LOGv("%s: Preparing a batch size of %d starting at: %d", __func__, cur_batch_size, i);
 
         // Shift context if current batch cannot fit into the context
@@ -507,6 +510,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
 
     // Populate the batch with new token, then decode
     common_batch_clear(g_batch);
+    g_batch.phase = LLAMA_BATCH_PHASE_GENERATION;
     common_batch_add(g_batch, new_token_id, current_position, {0}, true);
     if (llama_decode(g_context, g_batch) != 0) {
         LOGe("%s: llama_decode() failed for generated token", __func__);

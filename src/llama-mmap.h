@@ -13,8 +13,19 @@ using llama_files  = std::vector<std::unique_ptr<llama_file>>;
 using llama_mmaps  = std::vector<std::unique_ptr<llama_mmap>>;
 using llama_mlocks = std::vector<std::unique_ptr<llama_mlock>>;
 
+enum llama_file_access {
+    LLAMA_FILE_ACCESS_BUFFERED,
+    LLAMA_FILE_ACCESS_DIRECT_PREFERRED,
+    LLAMA_FILE_ACCESS_DIRECT_STRICT,
+};
+
+enum llama_mmap_policy {
+    LLAMA_MMAP_POLICY_STOCK,
+    LLAMA_MMAP_POLICY_DEMAND,
+};
+
 struct llama_file {
-    llama_file(const char * fname, const char * mode, bool use_direct_io = false);
+    llama_file(const char * fname, const char * mode, enum llama_file_access access = LLAMA_FILE_ACCESS_BUFFERED);
     llama_file(FILE * file);
     ~llama_file();
 
@@ -35,18 +46,21 @@ struct llama_file {
 
     size_t read_alignment() const;
     bool has_direct_io() const;
-private:
+    size_t direct_memory_alignment() const;
+    size_t direct_offset_alignment() const;
+  private:
     struct impl;
     std::unique_ptr<impl> pimpl;
 };
 
 struct llama_mmap {
     llama_mmap(const llama_mmap &) = delete;
-    llama_mmap(struct llama_file * file, size_t prefetch = (size_t) -1, bool numa = false);
+    llama_mmap(struct llama_file * file, enum llama_mmap_policy policy = LLAMA_MMAP_POLICY_STOCK, bool numa = false);
     ~llama_mmap();
 
     size_t size() const;
     void * addr() const;
+    bool   contains(const void * ptr, size_t len) const;
 
     void unmap_fragment(size_t first, size_t last);
 

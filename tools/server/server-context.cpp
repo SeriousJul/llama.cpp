@@ -74,6 +74,7 @@ struct server_batch {
         llama_token token;
         llama_pos pos;
         bool output;
+        enum llama_batch_phase phase;
     };
     std::vector<token> tokens;
     int32_t n_tokens_alloc = 0;
@@ -109,22 +110,26 @@ struct server_batch {
         tokens.reserve(n_tokens_alloc);
     }
 
-    bool add(int32_t id_slot, llama_token token, llama_pos pos, bool output) {
+    bool add(int32_t id_slot, llama_token token, llama_pos pos, bool output, enum llama_batch_phase phase) {
         GGML_ASSERT(!has_embd); // cannot mix tokens + embd in same batch
         GGML_ASSERT(batch.pos != nullptr);
         if ((int32_t)tokens.size() >= n_tokens_alloc) {
             return false;
         }
-        tokens.push_back({ id_slot, token, pos, output });
+        tokens.push_back({ id_slot, token, pos, output, phase });
         return true;
     }
 
-    bool add(int32_t id_slot, const std::vector<float> & embd_in, llama_pos pos, bool output) {
+    bool add(int32_t                    id_slot,
+             const std::vector<float> & embd_in,
+             llama_pos                  pos,
+             bool                       output,
+             enum llama_batch_phase     phase) {
         GGML_ASSERT(batch.pos != nullptr);
         if ((int32_t)tokens.size() >= n_tokens_alloc) {
             return false;
         }
-        tokens.push_back({ id_slot, LLAMA_TOKEN_NULL, pos, output });
+        tokens.push_back({ id_slot, LLAMA_TOKEN_NULL, pos, output, phase });
         has_embd = true;
         embd.insert(embd.end(), embd_in.begin(), embd_in.end());
         return true;
@@ -162,6 +167,13 @@ struct server_batch {
             const auto & t = tokens[i];
             common_batch_add(batch, t.token, t.pos, { t.id_slot }, t.output);
         }
+        batch.phase = tokens.empty() ? LLAMA_BATCH_PHASE_UNSPECIFIED : tokens.front().phase;
+        for (const auto & t : tokens) {
+            if (t.phase != batch.phase) {
+                batch.phase = LLAMA_BATCH_PHASE_MIXED;
+                break;
+            }
+        }
         if (has_embd) {
             batch.token = nullptr; // will be restored on clear()
             batch.embd  = embd.data();
@@ -182,11 +194,18 @@ struct server_batch {
             n_tokens,
             token,
             embd,
-            batch.pos      + off,
+            batch.pos + off,
             batch.n_seq_id + off,
-            batch.seq_id   + off,
-            batch.logits   + off,
+            batch.seq_id + off,
+            batch.logits + off,
+            tokens[off].phase,
         };
+        for (int32_t i = off + 1; i < off + n_tokens; ++i) {
+            if (tokens[i].phase != view.phase) {
+                view.phase = LLAMA_BATCH_PHASE_MIXED;
+                break;
+            }
+        }
 
         return view;
     }
@@ -488,9 +507,9 @@ struct server_slot {
             i_batch = batch.size();
 
             if (!inp_embd.empty()) {
-                add_ok &= batch.add(id, inp_embd, prompt.tokens.pos_next(), true);
+                add_ok &= batch.add(id, inp_embd, prompt.tokens.pos_next(), true, LLAMA_BATCH_PHASE_GENERATION);
             } else {
-                add_ok &= batch.add(id, sampled, prompt.tokens.pos_next(), true);
+                add_ok &= batch.add(id, sampled, prompt.tokens.pos_next(), true, LLAMA_BATCH_PHASE_GENERATION);
             }
 
             SLT_DBG(*this, "slot decode token, id=%d, n_ctx = %d, n_tokens = %d, truncated = %d\n",
@@ -508,9 +527,9 @@ struct server_slot {
 
             auto pos0 = prompt.tokens.pos_next();
 
-            add_ok &= batch.add(id, sampled, pos0++, true);
+            add_ok &= batch.add(id, sampled, pos0++, true, LLAMA_BATCH_PHASE_VERIFICATION);
             for (auto token : spec_draft) {
-                add_ok &= batch.add(this->id, token, pos0++, true);
+                add_ok &= batch.add(this->id, token, pos0++, true, LLAMA_BATCH_PHASE_VERIFICATION);
             }
         }
 
@@ -3523,10 +3542,8 @@ private:
                         // embedding requires all tokens in the batch to be output;
                         // MTP also wants logits at every prompt position so the
                         // streaming hook can mirror t_h_nextn into ctx_dft.
-                        add_ok &= batch.add(slot.id,
-                            cur_tok,
-                            slot.prompt.tokens.pos_next(),
-                            slot.need_embd());
+                        add_ok &= batch.add(slot.id, cur_tok, slot.prompt.tokens.pos_next(), slot.need_embd(),
+                                            LLAMA_BATCH_PHASE_PROMPT);
                         slot.prompt.tokens.push_back(cur_tok);
 
                         slot.n_prompt_tokens_processed++;

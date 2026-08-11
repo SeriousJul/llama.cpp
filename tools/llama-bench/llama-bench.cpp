@@ -271,6 +271,19 @@ static const char * split_mode_str(llama_split_mode mode) {
     }
 }
 
+static const char * moe_cache_mode_str(llama_moe_cache_mode mode) {
+    switch (mode) {
+        case LLAMA_MOE_CACHE_MODE_OFF:
+            return "off";
+        case LLAMA_MOE_CACHE_MODE_AUTO:
+            return "auto";
+        case LLAMA_MOE_CACHE_MODE_GENERATION:
+            return "generation";
+        default:
+            GGML_ABORT("invalid MoE cache mode");
+    }
+}
+
 static std::string pair_str(const std::pair<int, int> & p) {
     static char buf[32];
     snprintf(buf, sizeof(buf), "%d,%d", p.first, p.second);
@@ -341,6 +354,10 @@ struct cmd_params {
     std::vector<int>                 n_cpu_moe;
     std::vector<llama_split_mode>    split_mode;
     std::vector<llama_load_mode>     load_mode;
+    std::vector<llama_moe_cache_mode>                          moe_cache_mode;
+    std::vector<size_t>                                        moe_cache_vram_mib;
+    std::vector<size_t>                                        moe_cache_ram_mib;
+    std::vector<size_t>                                        moe_cache_host_reserve_mib;
     std::vector<int>                 main_gpu;
     std::vector<bool>                no_kv_offload;
     std::vector<llama_flash_attn_type> flash_attn;
@@ -385,6 +402,10 @@ static const cmd_params cmd_params_defaults = {
     /* n_cpu_moe            */ { 0 },
     /* split_mode           */ { LLAMA_SPLIT_MODE_LAYER },
     /* load_mode            */ { LLAMA_LOAD_MODE_AUTO },
+    /* moe_cache_mode       */ { LLAMA_MOE_CACHE_MODE_AUTO },
+    /* moe_cache_vram_mib   */ { 0 },
+    /* moe_cache_ram_mib    */ { 0 },
+    /* moe_cache_host_reserve_mib */ { 0 },
     /* main_gpu             */ { 0 },
     /* no_kv_offload        */ { false },
     /* flash_attn           */ { LLAMA_FLASH_ATTN_TYPE_AUTO },
@@ -460,6 +481,14 @@ static void print_usage(int /* argc */, char ** argv) {
     printf("  -fa, --flash-attn <on|off|auto>                   (default: %s)\n", join(transform_to_str(cmd_params_defaults.flash_attn, llama_flash_attn_type_name), ",").c_str());
     printf("  -dev, --device <dev0/dev1/...>                    (default: auto)\n");
     printf("  -lm, --load-mode <auto|none|mmap|mlock|mmap+mlock|dio> (default: %s)\n", join(transform_to_str(cmd_params_defaults.load_mode, llama_load_mode_name), ",").c_str());
+    printf("  --moe-cache <off|auto|generation>                 (default: %s)\n",
+           join(transform_to_str(cmd_params_defaults.moe_cache_mode, moe_cache_mode_str), ",").c_str());
+    printf("  --moe-cache-vram <MiB>                            (default: %s)\n",
+           join(cmd_params_defaults.moe_cache_vram_mib, ",").c_str());
+    printf("  --moe-cache-ram <MiB>                             (default: %s)\n",
+           join(cmd_params_defaults.moe_cache_ram_mib, ",").c_str());
+    printf("  --moe-cache-host-reserve <MiB>                    (default: %s)\n",
+           join(cmd_params_defaults.moe_cache_host_reserve_mib, ",").c_str());
     printf("  -mmp, --mmap <0|1>                                (DEPRECATED IN FAVOUR OF --load-mode)\n");
     printf("  -dio, --direct-io <0|1>                           (DEPRECATED IN FAVOUR OF --load-mode)\n");
     printf("  -embd, --embeddings <0|1>                         (default: %s)\n", join(cmd_params_defaults.embeddings, ",").c_str());
@@ -786,6 +815,49 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
                     break;
                 }
                 params.load_mode.insert(params.load_mode.end(), modes.begin(), modes.end());
+            } else if (arg == "--moe-cache") {
+                if (++i >= argc) {
+                    invalid_param = true;
+                    break;
+                }
+                const auto values = string_split<std::string>(argv[i], split_delim);
+                for (const std::string & value : values) {
+                    if (value == "off") {
+                        params.moe_cache_mode.push_back(LLAMA_MOE_CACHE_MODE_OFF);
+                    } else if (value == "auto") {
+                        params.moe_cache_mode.push_back(LLAMA_MOE_CACHE_MODE_AUTO);
+                    } else if (value == "generation") {
+                        params.moe_cache_mode.push_back(LLAMA_MOE_CACHE_MODE_GENERATION);
+                    } else {
+                        invalid_param = true;
+                        break;
+                    }
+                }
+                if (invalid_param) {
+                    break;
+                }
+            } else if (arg == "--moe-cache-vram") {
+                if (++i >= argc) {
+                    invalid_param = true;
+                    break;
+                }
+                const auto values = parse_int_range(argv[i]);
+                params.moe_cache_vram_mib.insert(params.moe_cache_vram_mib.end(), values.begin(), values.end());
+            } else if (arg == "--moe-cache-ram") {
+                if (++i >= argc) {
+                    invalid_param = true;
+                    break;
+                }
+                const auto values = parse_int_range(argv[i]);
+                params.moe_cache_ram_mib.insert(params.moe_cache_ram_mib.end(), values.begin(), values.end());
+            } else if (arg == "--moe-cache-host-reserve") {
+                if (++i >= argc) {
+                    invalid_param = true;
+                    break;
+                }
+                const auto values = parse_int_range(argv[i]);
+                params.moe_cache_host_reserve_mib.insert(params.moe_cache_host_reserve_mib.end(), values.begin(),
+                                                         values.end());
             } else if (arg == "-mg" || arg == "--main-gpu") {
                 if (++i >= argc) {
                     invalid_param = true;
@@ -1137,6 +1209,18 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
     if (params.load_mode.empty()) {
         params.load_mode = cmd_params_defaults.load_mode;
     }
+    if (params.moe_cache_mode.empty()) {
+        params.moe_cache_mode = cmd_params_defaults.moe_cache_mode;
+    }
+    if (params.moe_cache_vram_mib.empty()) {
+        params.moe_cache_vram_mib = cmd_params_defaults.moe_cache_vram_mib;
+    }
+    if (params.moe_cache_ram_mib.empty()) {
+        params.moe_cache_ram_mib = cmd_params_defaults.moe_cache_ram_mib;
+    }
+    if (params.moe_cache_host_reserve_mib.empty()) {
+        params.moe_cache_host_reserve_mib = cmd_params_defaults.moe_cache_host_reserve_mib;
+    }
     if (params.main_gpu.empty()) {
         params.main_gpu = cmd_params_defaults.main_gpu;
     }
@@ -1203,6 +1287,10 @@ struct cmd_params_instance {
     int                n_cpu_moe;
     llama_split_mode   split_mode;
     llama_load_mode    load_mode;
+    llama_moe_cache_mode                          moe_cache_mode;
+    size_t                                        moe_cache_vram_mib;
+    size_t                                        moe_cache_ram_mib;
+    size_t                                        moe_cache_host_reserve_mib;
     int                main_gpu;
     bool               no_kv_offload;
     llama_flash_attn_type flash_attn;
@@ -1224,6 +1312,10 @@ struct cmd_params_instance {
         }
         mparams.split_mode    = split_mode;
         mparams.load_mode     = load_mode;
+        mparams.moe_cache_mode             = moe_cache_mode;
+        mparams.moe_cache_vram_mib         = moe_cache_vram_mib;
+        mparams.moe_cache_ram_mib          = moe_cache_ram_mib;
+        mparams.moe_cache_host_reserve_mib = moe_cache_host_reserve_mib;
         mparams.main_gpu      = main_gpu;
         mparams.tensor_split  = tensor_split.data();
         mparams.no_host       = no_host;
@@ -1269,9 +1361,11 @@ struct cmd_params_instance {
 
     bool equal_mparams(const cmd_params_instance & other) const {
         return model == other.model && n_gpu_layers == other.n_gpu_layers && n_cpu_moe == other.n_cpu_moe &&
-               split_mode == other.split_mode &&
-               main_gpu == other.main_gpu && tensor_split == other.tensor_split &&
-               load_mode == other.load_mode && devices == other.devices && no_host == other.no_host &&
+               split_mode == other.split_mode && main_gpu == other.main_gpu && tensor_split == other.tensor_split &&
+               load_mode == other.load_mode && moe_cache_mode == other.moe_cache_mode &&
+               moe_cache_vram_mib == other.moe_cache_vram_mib && moe_cache_ram_mib == other.moe_cache_ram_mib &&
+               moe_cache_host_reserve_mib == other.moe_cache_host_reserve_mib && devices == other.devices &&
+               no_host == other.no_host &&
                vec_tensor_buft_override_equal(tensor_buft_overrides, other.tensor_buft_overrides);
     }
 
@@ -1305,6 +1399,10 @@ static std::vector<cmd_params_instance> get_cmd_params_instances(const cmd_param
     for (const auto & ncmoe : params.n_cpu_moe)
     for (const auto & sm : params.split_mode)
     for (const auto & lm : params.load_mode)
+    for (const auto & mcm : params.moe_cache_mode)
+    for (const auto & mcv : params.moe_cache_vram_mib)
+    for (const auto & mcr : params.moe_cache_ram_mib)
+    for (const auto & mch : params.moe_cache_host_reserve_mib)
     for (const auto & mg : params.main_gpu)
     for (const auto & devs : params.devices)
     for (const auto & ts : params.tensor_split)
@@ -1344,6 +1442,10 @@ static std::vector<cmd_params_instance> get_cmd_params_instances(const cmd_param
                 /* .n_cpu_moe             = */ ncmoe,
                 /* .split_mode            = */ sm,
                 /* .load_mode             = */ lm,
+                /* .moe_cache_mode        = */ mcm,
+                /* .moe_cache_vram_mib    = */ mcv,
+                /* .moe_cache_ram_mib     = */ mcr,
+                /* .moe_cache_host_reserve_mib = */ mch,
                 /* .main_gpu              = */ mg,
                 /* .no_kv_offload         = */ nkvo,
                 /* .flash_attn            = */ fa,
@@ -1380,6 +1482,10 @@ static std::vector<cmd_params_instance> get_cmd_params_instances(const cmd_param
                 /* .n_cpu_moe             = */ ncmoe,
                 /* .split_mode            = */ sm,
                 /* .load_mode             = */ lm,
+                /* .moe_cache_mode        = */ mcm,
+                /* .moe_cache_vram_mib    = */ mcv,
+                /* .moe_cache_ram_mib     = */ mcr,
+                /* .moe_cache_host_reserve_mib = */ mch,
                 /* .main_gpu              = */ mg,
                 /* .no_kv_offload         = */ nkvo,
                 /* .flash_attn            = */ fa,
@@ -1416,6 +1522,10 @@ static std::vector<cmd_params_instance> get_cmd_params_instances(const cmd_param
                 /* .n_cpu_moe             = */ ncmoe,
                 /* .split_mode            = */ sm,
                 /* .load_mode             = */ lm,
+                /* .moe_cache_mode        = */ mcm,
+                /* .moe_cache_vram_mib    = */ mcv,
+                /* .moe_cache_ram_mib     = */ mcr,
+                /* .moe_cache_host_reserve_mib = */ mch,
                 /* .main_gpu              = */ mg,
                 /* .no_kv_offload         = */ nkvo,
                 /* .flash_attn            = */ fa,
@@ -1457,6 +1567,10 @@ struct test {
     int                      n_cpu_moe;
     llama_split_mode         split_mode;
     llama_load_mode          load_mode;
+    llama_moe_cache_mode                          moe_cache_mode;
+    size_t                                        moe_cache_vram_mib;
+    size_t                                        moe_cache_ram_mib;
+    size_t                                        moe_cache_host_reserve_mib;
     int                      main_gpu;
     bool                     no_kv_offload;
     llama_flash_attn_type    flash_attn;
@@ -1473,6 +1587,16 @@ struct test {
     int                      n_depth;
     std::string              test_time;
     std::vector<uint64_t>    samples_ns;
+    uint64_t                                      moe_cache_l1_bytes          = 0;
+    uint64_t                                      moe_cache_l2_bytes          = 0;
+    uint64_t                                      moe_cache_l1_hits           = 0;
+    uint64_t                                      moe_cache_l2_hits           = 0;
+    uint64_t                                      moe_cache_l3_read_count     = 0;
+    uint64_t                                      moe_cache_l3_logical_bytes  = 0;
+    uint64_t                                      moe_cache_l3_physical_bytes = 0;
+    uint64_t                                      moe_cache_l1_evictions      = 0;
+    uint64_t                                      moe_cache_l2_evictions      = 0;
+    uint64_t                                      moe_cache_l3_wait_us        = 0;
 
     test(const cmd_params_instance & inst, const llama_model * lmodel, const llama_context * ctx) :
         cpu_info(get_cpu_info()),
@@ -1496,6 +1620,10 @@ struct test {
         n_cpu_moe      = inst.n_cpu_moe;
         split_mode     = inst.split_mode;
         load_mode      = inst.load_mode;
+        moe_cache_mode             = inst.moe_cache_mode;
+        moe_cache_vram_mib         = inst.moe_cache_vram_mib;
+        moe_cache_ram_mib          = inst.moe_cache_ram_mib;
+        moe_cache_host_reserve_mib = inst.moe_cache_host_reserve_mib;
         main_gpu       = inst.main_gpu;
         no_kv_offload  = inst.no_kv_offload;
         flash_attn     = inst.flash_attn;
@@ -1515,7 +1643,21 @@ struct test {
         std::strftime(buf, sizeof(buf), "%FT%TZ", gmtime(&t));
         test_time = buf;
 
-        (void) ctx;
+        capture_perf(ctx);
+    }
+
+    void capture_perf(const llama_context * ctx) {
+        const llama_perf_context_data perf = llama_perf_context(ctx);
+        moe_cache_l1_bytes                 = perf.moe_cache_l1_bytes;
+        moe_cache_l2_bytes                 = perf.moe_cache_l2_bytes;
+        moe_cache_l1_hits                  = perf.moe_cache_l1_hits;
+        moe_cache_l2_hits                  = perf.moe_cache_l2_hits;
+        moe_cache_l3_read_count            = perf.moe_cache_l3_read_count;
+        moe_cache_l3_logical_bytes         = perf.moe_cache_l3_logical_bytes;
+        moe_cache_l3_physical_bytes        = perf.moe_cache_l3_physical_bytes;
+        moe_cache_l1_evictions             = perf.moe_cache_l1_evictions;
+        moe_cache_l2_evictions             = perf.moe_cache_l2_evictions;
+        moe_cache_l3_wait_us               = perf.moe_cache_l3_wait_us;
     }
 
     uint64_t avg_ns() const { return ::avg(samples_ns); }
@@ -1557,17 +1699,60 @@ struct test {
     }
 
     static const std::vector<std::string> & get_fields() {
-        static const std::vector<std::string> fields = {
-            "build_commit",   "build_number",   "cpu_info",      "gpu_info",       "backends",
-            "model_filename", "model_type",     "model_size",    "model_n_params", "n_batch",
-            "n_ubatch",       "n_threads",      "cpu_mask",      "cpu_strict",     "poll",
-            "type_k",         "type_v",         "n_gpu_layers",  "n_cpu_moe",      "split_mode",
-            "main_gpu",       "no_kv_offload",  "flash_attn",    "devices",        "tensor_split",
-            "tensor_buft_overrides",            "load_mode",     "embeddings",
-            "no_op_offload",  "no_host",        "fit_target",    "fit_min_ctx",
-            "n_prompt",       "n_gen",          "n_depth",
-            "test_time",      "avg_ns",         "stddev_ns",     "avg_ts",         "stddev_ts"
-        };
+        static const std::vector<std::string> fields = { "build_commit",
+                                                         "build_number",
+                                                         "cpu_info",
+                                                         "gpu_info",
+                                                         "backends",
+                                                         "model_filename",
+                                                         "model_type",
+                                                         "model_size",
+                                                         "model_n_params",
+                                                         "n_batch",
+                                                         "n_ubatch",
+                                                         "n_threads",
+                                                         "cpu_mask",
+                                                         "cpu_strict",
+                                                         "poll",
+                                                         "type_k",
+                                                         "type_v",
+                                                         "n_gpu_layers",
+                                                         "n_cpu_moe",
+                                                         "split_mode",
+                                                         "main_gpu",
+                                                         "no_kv_offload",
+                                                         "flash_attn",
+                                                         "devices",
+                                                         "tensor_split",
+                                                         "tensor_buft_overrides",
+                                                         "load_mode",
+                                                         "moe_cache_mode",
+                                                         "moe_cache_vram_mib",
+                                                         "moe_cache_ram_mib",
+                                                         "moe_cache_host_reserve_mib",
+                                                         "embeddings",
+                                                         "no_op_offload",
+                                                         "no_host",
+                                                         "fit_target",
+                                                         "fit_min_ctx",
+                                                         "n_prompt",
+                                                         "n_gen",
+                                                         "n_depth",
+                                                         "moe_cache_l1_bytes",
+                                                         "moe_cache_l2_bytes",
+                                                         "moe_cache_l1_hits",
+                                                         "moe_cache_l2_hits",
+                                                         "moe_cache_l3_read_count",
+                                                         "moe_cache_l3_logical_bytes",
+                                                         "moe_cache_l3_physical_bytes",
+                                                         "moe_cache_l1_evictions",
+                                                         "moe_cache_l2_evictions",
+                                                         "moe_cache_l3_wait_us",
+                                                         "test_time",
+                                                         "avg_ns",
+                                                         "stddev_ns",
+                                                         "avg_ts",
+                                                         "stddev_ts" };
         return fields;
     }
 
@@ -1577,8 +1762,13 @@ struct test {
         if (field == "build_number" || field == "n_batch" || field == "n_ubatch" || field == "n_threads" ||
             field == "poll" || field == "model_size" || field == "model_n_params" || field == "n_gpu_layers" ||
             field == "main_gpu" || field == "n_prompt" || field == "n_gen" || field == "n_depth" || field == "avg_ns" ||
-            field == "stddev_ns" || field == "no_op_offload" || field == "n_cpu_moe" ||
-            field == "fit_target" || field == "fit_min_ctx" || field == "flash_attn") {
+            field == "stddev_ns" || field == "no_op_offload" || field == "n_cpu_moe" || field == "fit_target" ||
+            field == "fit_min_ctx" || field == "flash_attn" || field == "moe_cache_vram_mib" ||
+            field == "moe_cache_ram_mib" || field == "moe_cache_host_reserve_mib" || field == "moe_cache_l1_bytes" ||
+            field == "moe_cache_l2_bytes" || field == "moe_cache_l1_hits" || field == "moe_cache_l2_hits" ||
+            field == "moe_cache_l3_read_count" || field == "moe_cache_l3_logical_bytes" ||
+            field == "moe_cache_l3_physical_bytes" || field == "moe_cache_l1_evictions" ||
+            field == "moe_cache_l2_evictions" || field == "moe_cache_l3_wait_us") {
             return INT;
         }
         if (field == "f16_kv" || field == "no_kv_offload" || field == "cpu_strict" ||
@@ -1587,9 +1777,6 @@ struct test {
         }
         if (field == "avg_ts" || field == "stddev_ts") {
             return FLOAT;
-        }
-        if (field == "load_mode") {
-            return STRING;
         }
         return STRING;
     }
@@ -1658,6 +1845,10 @@ struct test {
                                             tensor_split_str,
                                             tensor_buft_overrides_str,
                                             llama_load_mode_name(load_mode),
+                                            moe_cache_mode_str(moe_cache_mode),
+                                            std::to_string(moe_cache_vram_mib),
+                                            std::to_string(moe_cache_ram_mib),
+                                            std::to_string(moe_cache_host_reserve_mib),
                                             std::to_string(embeddings),
                                             std::to_string(no_op_offload),
                                             std::to_string(no_host),
@@ -1666,6 +1857,16 @@ struct test {
                                             std::to_string(n_prompt),
                                             std::to_string(n_gen),
                                             std::to_string(n_depth),
+                                            std::to_string(moe_cache_l1_bytes),
+                                            std::to_string(moe_cache_l2_bytes),
+                                            std::to_string(moe_cache_l1_hits),
+                                            std::to_string(moe_cache_l2_hits),
+                                            std::to_string(moe_cache_l3_read_count),
+                                            std::to_string(moe_cache_l3_logical_bytes),
+                                            std::to_string(moe_cache_l3_physical_bytes),
+                                            std::to_string(moe_cache_l1_evictions),
+                                            std::to_string(moe_cache_l2_evictions),
+                                            std::to_string(moe_cache_l3_wait_us),
                                             test_time,
                                             std::to_string(avg_ns()),
                                             std::to_string(stdev_ns()),
@@ -2128,7 +2329,9 @@ static bool test_prompt(llama_context * ctx, int n_prompt, int n_batch, int n_th
         for (int i = 1; i < n_tokens; i++) {
             tokens[i] = std::rand() % n_vocab;
         }
-        int res = llama_decode(ctx, llama_batch_get_one(tokens.data(), n_tokens));
+        llama_batch batch = llama_batch_get_one(tokens.data(), n_tokens);
+        batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+        int res           = llama_decode(ctx, batch);
         if (res != 0) {
             fprintf(stderr, "%s: failed to decode prompt batch, res = %d\n", __func__, res);
             return false;
@@ -2150,7 +2353,9 @@ static bool test_gen(llama_context * ctx, int n_gen, int n_threads) {
     llama_token token = llama_vocab_get_add_bos(vocab) ? llama_vocab_bos(vocab) : std::rand() % n_vocab;
 
     for (int i = 0; i < n_gen; i++) {
-        int res = llama_decode(ctx, llama_batch_get_one(&token, 1));
+        llama_batch batch = llama_batch_get_one(&token, 1);
+        batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
+        int res           = llama_decode(ctx, batch);
         if (res != 0) {
             fprintf(stderr, "%s: failed to decode generation batch, res = %d\n", __func__, res);
             return false;
@@ -2449,6 +2654,7 @@ int llama_bench(int argc, char ** argv) {
             uint64_t t_ns = get_time_ns() - t_start;
             t.samples_ns.push_back(t_ns);
         }
+        t.capture_perf(ctx);
 
         if (p) {
             p->print_test(t);

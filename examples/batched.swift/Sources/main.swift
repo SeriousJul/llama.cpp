@@ -88,6 +88,7 @@ for id: llama_token in tokens {
 print("\n")
 
 var batch = llama_batch_init(max(Int32(tokens.count), Int32(n_parallel)), 0, 1)
+batch.phase = LLAMA_BATCH_PHASE_PROMPT
 defer {
     llama_batch_free(batch)
 }
@@ -135,6 +136,7 @@ let t_main_start = ggml_time_us()
 while n_cur <= n_len {
     // prepare the next batch
     batch.n_tokens = 0
+    batch.phase = LLAMA_BATCH_PHASE_GENERATION
 
     // sample the next token for each parallel sequence / stream
     for i in 0 ..< n_parallel {

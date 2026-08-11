@@ -126,6 +126,7 @@ int main(int argc, char ** argv) {
     //LOG_INF("prompt: %s\n", params.prompt.c_str());
 
     llama_batch batch = llama_batch_init(params.n_batch, 0, 1);
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
     int n_past = 0;
 

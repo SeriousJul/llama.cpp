@@ -110,6 +110,7 @@ struct mtmd_cli_context {
         smpl = common_sampler_init(model, params.sampling);
         n_threads = params.cpuparams.n_threads;
         batch = llama_batch_init(1, 0, 1); // batch for next token generation
+        batch.phase = LLAMA_BATCH_PHASE_GENERATION;
         n_batch = params.n_batch;
 
         if (!model || !lctx) {

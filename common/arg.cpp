@@ -2815,6 +2815,50 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_FIT_TARGET"));
     add_opt(common_arg(
+                { "--moe-cache" }, "MODE", "sparse MoE expert cache mode: off, auto, or generation (default: auto)",
+                [](common_params & params, const std::string & value) {
+                    if (value == "off") {
+                        params.moe_cache_mode = LLAMA_MOE_CACHE_MODE_OFF;
+                    } else if (value == "auto") {
+                        params.moe_cache_mode = LLAMA_MOE_CACHE_MODE_AUTO;
+                    } else if (value == "generation") {
+                        params.moe_cache_mode = LLAMA_MOE_CACHE_MODE_GENERATION;
+                    } else {
+                        throw std::invalid_argument("invalid value for --moe-cache: expected off, auto, or generation");
+                    }
+                })
+                .set_env("LLAMA_ARG_MOE_CACHE"));
+    add_opt(common_arg({ "--moe-cache-vram" }, "MiB",
+                       string_format("per-device sparse MoE L1 cache ceiling in MiB (default: %zu, 0 = automatic)",
+                                     params.moe_cache_vram_mib),
+                       [](common_params & params, int value) {
+                           if (value < 0) {
+                               throw std::invalid_argument("--moe-cache-vram must be non-negative");
+                           }
+                           params.moe_cache_vram_mib = value;
+                       })
+                .set_env("LLAMA_ARG_MOE_CACHE_VRAM"));
+    add_opt(common_arg({ "--moe-cache-ram" }, "MiB",
+                       string_format("process sparse MoE L2 cache ceiling in MiB (default: %zu, 0 = automatic)",
+                                     params.moe_cache_ram_mib),
+                       [](common_params & params, int value) {
+                           if (value < 0) {
+                               throw std::invalid_argument("--moe-cache-ram must be non-negative");
+                           }
+                           params.moe_cache_ram_mib = value;
+                       })
+                .set_env("LLAMA_ARG_MOE_CACHE_RAM"));
+    add_opt(common_arg({ "--moe-cache-host-reserve" }, "MiB",
+                       string_format("host memory reserve for sparse MoE caching in MiB (default: %zu, 0 = automatic)",
+                                     params.moe_cache_host_reserve_mib),
+                       [](common_params & params, int value) {
+                           if (value < 0) {
+                               throw std::invalid_argument("--moe-cache-host-reserve must be non-negative");
+                           }
+                           params.moe_cache_host_reserve_mib = value;
+                       })
+                .set_env("LLAMA_ARG_MOE_CACHE_HOST_RESERVE"));
+    add_opt(common_arg(
         { "-fitc", "--fit-ctx" }, "N",
         string_format("minimum ctx size that can be set by --fit option, default: %" PRIu32, params.fit_params_min_ctx),
         [](common_params & params, int value) {

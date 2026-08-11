@@ -54,6 +54,8 @@ struct llama_context {
     //   - changing attention type
     //   - etc.
     void sched_reserve();
+    void sched_moe_cache_configure();
+    bool sched_moe_cache_activate();
 
     void synchronize();
 
@@ -248,8 +250,13 @@ public:
     ggml_status graph_compute(ggml_cgraph * gf, bool batched);
 
     // reserve a graph with a dummy ubatch of the specified size
-    ggml_cgraph * graph_reserve(
-        uint32_t n_tokens, uint32_t n_seqs, uint32_t n_outputs, const llama_memory_context_i * mctx, bool split_only = false, size_t * sizes = nullptr);
+    ggml_cgraph * graph_reserve(uint32_t                       n_tokens,
+                                uint32_t                       n_seqs,
+                                uint32_t                       n_outputs,
+                                const llama_memory_context_i * mctx,
+                                bool                           split_only = false,
+                                size_t *                       sizes      = nullptr,
+                                enum llama_batch_phase         phase      = LLAMA_BATCH_PHASE_UNSPECIFIED);
 
     bool set_sampler(llama_seq_id seq_id, llama_sampler * sampler);
 
@@ -341,12 +348,12 @@ private:
 
     std::vector<swap_info> output_swaps;
 
+    ggml_backend_t                backend_cpu = nullptr;
+    std::vector<ggml_backend_ptr> backends;
     ggml_backend_sched_ptr sched;
 
     bool sched_need_reserve = true;
-
-    ggml_backend_t backend_cpu = nullptr;
-    std::vector<ggml_backend_ptr> backends;
+    bool moe_cache_enabled  = false;
 
     // training
     ggml_opt_context_t opt_ctx = nullptr;

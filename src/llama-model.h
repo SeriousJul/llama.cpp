@@ -694,6 +694,14 @@ struct llama_model {
     ggml_backend_buffer_type_t select_buft(int il) const;
 
     bool has_tensor_overrides() const;
+    void prepare_moe_cache_load();
+    void finish_moe_cache_load();
+
+    enum llama_moe_cache_mode                  moe_cache_mode() const;
+    size_t                                     moe_cache_vram_mib() const;
+    size_t                                     moe_cache_ram_mib() const;
+    size_t                                     moe_cache_host_reserve_mib() const;
+    const std::vector<ggml_moe_cache_source> & moe_cache_sources() const;
 
     const struct ggml_tensor * get_tensor(const char * name) const;
 

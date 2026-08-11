@@ -200,6 +200,7 @@ add_library(ggml-base
             ggml.cpp
             ggml-alloc.c
             ggml-backend.cpp
+            ggml-backend-moe-cache.cpp
             ggml-backend-meta.cpp
             ggml-opt.cpp
             ggml-threading.cpp
@@ -220,6 +221,13 @@ endif()
 
 if (GGML_SCHED_NO_REALLOC)
     target_compile_definitions(ggml-base PUBLIC GGML_SCHED_NO_REALLOC)
+endif()
+
+if (GGML_MOE_CACHE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBURING REQUIRED IMPORTED_TARGET liburing>=2.0)
+    target_compile_definitions(ggml-base PUBLIC GGML_MOE_CACHE)
+    target_link_libraries(ggml-base PRIVATE PkgConfig::LIBURING)
 endif()
 
 if (GGML_OPENMP)

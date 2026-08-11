@@ -1,4 +1,5 @@
 // Note: porting this file to C++ is a work in progress
+#include "ggml-backend-moe-cache.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -820,6 +821,8 @@ struct ggml_backend_sched {
 
     bool op_offload;
 
+    ggml_backend_moe_cache * moe_cache;
+
     int debug;
 
     // used for debugging graph reallocations [GGML_SCHED_DEBUG_REALLOC]
@@ -958,7 +961,9 @@ static int ggml_backend_sched_backend_id_from_cur(ggml_backend_sched_t sched, st
                 // check if a backend with higher prio wants to offload the op
                 if (sched->op_offload && src_backend_id == sched->n_backends - 1 && ggml_backend_buffer_is_host(src->buffer)) {
                     for (int b = 0; b < src_backend_id; b++) {
-                        if (ggml_backend_supports_op(sched->backends[b], tensor) && ggml_backend_offload_op(sched->backends[b], tensor)) {
+                        if (ggml_backend_supports_op(sched->backends[b], tensor) &&
+                            (ggml_backend_moe_cache_should_offload(sched->moe_cache, tensor, src, sched->backends[b]) ||
+                             ggml_backend_offload_op(sched->backends[b], tensor))) {
                             SET_CAUSE(tensor, "1.off");
                             return b;
                         }
@@ -1598,6 +1603,7 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
     ggml_tensor * prev_ids_tensor = nullptr;
     std::vector<int32_t> ids;
     std::vector<ggml_bitset_t> used_ids;
+    std::vector<int32_t>       selected_ids;
 
     for (int split_id = 0; split_id < sched->n_splits; split_id++) {
         struct ggml_backend_sched_split * split = &splits[split_id];
@@ -1671,6 +1677,22 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                         }
 
                         prev_ids_tensor = ids_tensor;
+                    }
+
+                    selected_ids.clear();
+                    for (int32_t id = 0; id < n_expert; ++id) {
+                        if (ggml_bitset_get(used_ids.data(), id)) {
+                            selected_ids.push_back(id);
+                        }
+                    }
+                    const enum ggml_backend_moe_cache_result cache_result =
+                        ggml_backend_moe_cache_copy_experts(sched->moe_cache, input_backend, split_backend, input,
+                                                            input_cpy, selected_ids.data(), selected_ids.size());
+                    if (cache_result == GGML_BACKEND_MOE_CACHE_FAILED) {
+                        return GGML_STATUS_FAILED;
+                    }
+                    if (cache_result == GGML_BACKEND_MOE_CACHE_HANDLED) {
+                        continue;
                     }
 
                     // group consecutive experts and copy them together
@@ -1843,6 +1865,7 @@ ggml_backend_sched_t ggml_backend_sched_new(
 
     sched->galloc = ggml_gallocr_new_n(sched->bufts, n_backends);
     sched->op_offload = op_offload;
+    sched->moe_cache  = ggml_backend_moe_cache_new(backends, n_backends);
 
     ggml_backend_sched_reset(sched);
 
@@ -1853,6 +1876,7 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
     if (sched == NULL) {
         return;
     }
+    ggml_backend_moe_cache_free(sched->moe_cache);
     for (int b = 0; b < sched->n_backends; b++) {
         for (int c = 0; c < sched->n_copies; c++) {
             ggml_backend_event_free(sched->events[b][c]);
@@ -1880,6 +1904,7 @@ void ggml_backend_sched_free(ggml_backend_sched_t sched) {
 
 void ggml_backend_sched_reset(ggml_backend_sched_t sched) {
     GGML_ASSERT(sched);
+    ggml_backend_moe_cache_reset(sched->moe_cache);
     // reset state for the next run
     if (!sched->is_reset) {
         ggml_hash_set_reset(&sched->hash_set);
@@ -1888,6 +1913,44 @@ void ggml_backend_sched_reset(ggml_backend_sched_t sched) {
         sched->is_reset = true;
     }
     sched->is_alloc = false;
+}
+
+bool ggml_backend_sched_moe_cache_configure(ggml_backend_sched_t                 sched,
+                                            const struct ggml_moe_cache_config * config,
+                                            const struct ggml_moe_cache_source * sources,
+                                            size_t                               n_sources) {
+    GGML_ASSERT(sched);
+    return ggml_backend_moe_cache_configure(sched->moe_cache, config, sources, n_sources);
+}
+
+bool ggml_backend_sched_moe_cache_activate(ggml_backend_sched_t sched) {
+    GGML_ASSERT(sched);
+    return ggml_backend_moe_cache_activate(sched->moe_cache);
+}
+
+void ggml_backend_sched_moe_cache_set_eligible(ggml_backend_sched_t sched, bool eligible) {
+    GGML_ASSERT(sched);
+    ggml_backend_moe_cache_set_eligible(sched->moe_cache, eligible);
+}
+
+struct ggml_moe_cache_stats ggml_backend_sched_moe_cache_get_stats(ggml_backend_sched_t sched) {
+    GGML_ASSERT(sched);
+    return ggml_backend_moe_cache_get_stats(sched->moe_cache);
+}
+
+void ggml_backend_sched_moe_cache_reset_stats(ggml_backend_sched_t sched) {
+    GGML_ASSERT(sched);
+    ggml_backend_moe_cache_reset_stats(sched->moe_cache);
+}
+
+bool ggml_backend_sched_moe_cache_consume_placement_invalidated(ggml_backend_sched_t sched) {
+    GGML_ASSERT(sched);
+    return ggml_backend_moe_cache_consume_placement_invalidated(sched->moe_cache);
+}
+
+const char * ggml_backend_sched_moe_cache_get_error(ggml_backend_sched_t sched) {
+    GGML_ASSERT(sched);
+    return ggml_backend_moe_cache_get_error(sched->moe_cache);
 }
 
 void ggml_backend_sched_reserve_size(ggml_backend_sched_t sched, struct ggml_cgraph * measure_graph, size_t * sizes) {

@@ -130,6 +130,7 @@ struct test_context {
 
         last_batch_info.clear();
         llama_batch batch = llama_batch_init(512, 0, prompts.size());
+        batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
         for (const auto & [seq_id, prompt] : prompts) {
             std::vector<llama_token> tokens;
@@ -214,6 +215,7 @@ struct test_context {
         GGML_ASSERT(ctx);
 
         llama_batch batch = llama_batch_init(1, 0, 1);
+        batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
         int32_t pos = seq_positions[seq_id];
         common_batch_add(batch, token, pos, { seq_id }, true);
 
@@ -235,6 +237,7 @@ struct test_context {
         GGML_ASSERT(ctx);
 
         llama_batch batch = llama_batch_init(seq_tokens.size(), 0, seq_tokens.size());
+        batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
 
         for (const auto & [seq_id, token] : seq_tokens) {
             int32_t pos = seq_positions[seq_id];
@@ -1608,6 +1611,7 @@ static void test_backend_multi_output_limit(const test_params & params) {
     test_context test_ctx(params, configs, 1, 3, 0, 2);
 
     llama_batch batch = llama_batch_init(3, 0, 1);
+    batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
     for (int i = 0; i < 3; ++i) {
         common_batch_add(batch, llama_vocab_bos(test_ctx.vocab), i, { seq_id }, true);
     }
@@ -1650,6 +1654,7 @@ static void test_backend_multi_sequence_multi_output_dist(const test_params & pa
     };
 
     llama_batch batch = llama_batch_init(4, 0, 1);
+    batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
     for (int pos = 0; pos < 2; ++pos) {
         common_batch_add(batch, seq_tokens[0][pos], pos, { 0 }, true);
         common_batch_add(batch, seq_tokens[1][pos], pos, { 1 }, true);
@@ -1751,6 +1756,7 @@ static void test_backend_multi_output_dist_transaction(const test_params & param
     int32_t pos = 0;
     auto decode = [&]() {
         llama_batch batch = llama_batch_init(3, 0, 1);
+        batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
         for (int32_t i = 0; i < 3; ++i) {
             common_batch_add(batch, llama_vocab_bos(vocab), pos++, { seq_id }, true);
         }
@@ -1819,6 +1825,7 @@ static void test_backend_multi_output_sampling_chain(const test_params & params)
 
     auto make_batch = [&](int32_t pos) {
         llama_batch batch = llama_batch_init(2, 0, 1);
+        batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
         for (int i = 0; i < 2; ++i) {
             common_batch_add(batch, llama_vocab_bos(vocab), pos + i, { seq_id }, true);
         }
@@ -1951,6 +1958,7 @@ static void test_backend_multi_output_cpu_suffix(const test_params & params) {
         test_context test_ctx(params, configs, 1, 1, 0, 4);
 
         llama_batch batch = llama_batch_init(1, 0, 1);
+        batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
         common_batch_add(batch, llama_vocab_bos(vocab), 0, { seq_id }, true);
         GGML_ASSERT(llama_decode(test_ctx.ctx.get(), batch) == 0);
 
@@ -1970,6 +1978,7 @@ static void test_backend_multi_output_cpu_suffix(const test_params & params) {
         test_context test_ctx(params, configs, 1, 2, 0, 0);
 
         llama_batch batch = llama_batch_init(2, 0, 1);
+        batch.phase       = LLAMA_BATCH_PHASE_GENERATION;
         for (int i = 0; i < 2; ++i) {
             common_batch_add(batch, llama_vocab_bos(vocab), i, { seq_id }, true);
         }

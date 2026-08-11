@@ -252,6 +252,7 @@ int main(int argc, char ** argv) {
     // the max batch size is as large as the context to handle cases where we get very long input prompt from multiple
     // users. regardless of the size, the main loop will chunk the batch into a maximum of params.n_batch tokens at a time
     llama_batch batch = llama_batch_init(n_ctx, 0, 1);
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
     int32_t n_total_prompt = 0;
     int32_t n_total_gen    = 0;
@@ -287,6 +288,8 @@ int main(int argc, char ** argv) {
 
     while (true) {
         common_batch_clear(batch);
+        bool batch_has_generation = false;
+        bool batch_has_prompt     = false;
 
         // decode any currently ongoing sequences
         for (auto & client : clients) {
@@ -297,6 +300,7 @@ int main(int argc, char ** argv) {
             client.i_batch = batch.n_tokens;
 
             common_batch_add(batch, client.sampled, client.n_past++, { client.id + 1 }, true);
+            batch_has_generation = true;
 
             client.n_decoded += 1;
         }
@@ -351,6 +355,7 @@ int main(int argc, char ** argv) {
                     for (size_t i = 0; i < tokens_prompt.size(); ++i) {
                         common_batch_add(batch, tokens_prompt[i], client.n_past++, { client.id + 1 }, false);
                     }
+                    batch_has_prompt = true;
 
                     // extract the logits only for the last token
                     if (batch.n_tokens > 0) {
@@ -373,6 +378,10 @@ int main(int argc, char ** argv) {
             }
         }
 
+        batch.phase = batch_has_generation && batch_has_prompt ? LLAMA_BATCH_PHASE_MIXED :
+                      batch_has_generation                     ? LLAMA_BATCH_PHASE_GENERATION :
+                                                                 LLAMA_BATCH_PHASE_PROMPT;
+
         if (batch.n_tokens == 0) {
             break;
         }
@@ -393,13 +402,8 @@ int main(int argc, char ** argv) {
             const int32_t n_tokens = std::min(n_batch, batch.n_tokens - i);
 
             llama_batch batch_view = {
-                n_tokens,
-                batch.token    + i,
-                nullptr,
-                batch.pos      + i,
-                batch.n_seq_id + i,
-                batch.seq_id   + i,
-                batch.logits   + i,
+                n_tokens,           batch.token + i,  nullptr,          batch.pos + i,
+                batch.n_seq_id + i, batch.seq_id + i, batch.logits + i, batch.phase,
             };
 
             const int ret = llama_decode(ctx, batch_view);

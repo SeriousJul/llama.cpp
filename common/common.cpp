@@ -1444,7 +1444,9 @@ common_init_result_ptr common_init_from_params(common_params & params, bool mode
         }
 
         if (llama_model_has_encoder(model)) {
-            llama_encode(lctx, llama_batch_get_one(tmp.data(), tmp.size()));
+            llama_batch batch = llama_batch_get_one(tmp.data(), tmp.size());
+            batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+            llama_encode(lctx, batch);
             llama_token decoder_start_token_id = llama_model_decoder_start_token(model);
             if (decoder_start_token_id == LLAMA_TOKEN_NULL) {
                 decoder_start_token_id = bos;
@@ -1453,7 +1455,9 @@ common_init_result_ptr common_init_from_params(common_params & params, bool mode
             tmp.push_back(decoder_start_token_id);
         }
         if (llama_model_has_decoder(model)) {
-            llama_decode(lctx, llama_batch_get_one(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch)));
+            llama_batch batch = llama_batch_get_one(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch));
+            batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+            llama_decode(lctx, batch);
         }
         llama_memory_clear(llama_get_memory(lctx), true);
         llama_synchronize(lctx);
@@ -1512,7 +1516,9 @@ common_context_seq_rm_type common_context_can_seq_rm(llama_context * ctx) {
     tmp.push_back(0);
     tmp.push_back(0);
 
-    int ret = llama_decode(ctx, llama_batch_get_one(tmp.data(), tmp.size()));
+    llama_batch batch = llama_batch_get_one(tmp.data(), tmp.size());
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+    int ret           = llama_decode(ctx, batch);
     if (ret != 0) {
         COM_ERR("llama_decode() failed: %d\n", ret);
         res = COMMON_CONTEXT_SEQ_RM_TYPE_NO;
@@ -1596,6 +1602,9 @@ void common_set_adapter_lora(struct llama_context * ctx, std::vector<common_adap
 
 struct llama_model_params common_model_params_to_llama(common_params & params) {
     auto mparams = llama_model_default_params();
+    if (params.no_op_offload) {
+        params.moe_cache_mode = LLAMA_MOE_CACHE_MODE_OFF;
+    }
 
     if (!params.devices.empty()) {
         mparams.devices = params.devices.data();
@@ -1606,6 +1615,10 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     mparams.split_mode      = params.split_mode;
     mparams.load_mode       = params.load_mode;
     mparams.tensor_split    = params.tensor_split;
+    mparams.moe_cache_mode             = params.moe_cache_mode;
+    mparams.moe_cache_vram_mib         = params.moe_cache_vram_mib;
+    mparams.moe_cache_ram_mib          = params.moe_cache_ram_mib;
+    mparams.moe_cache_host_reserve_mib = params.moe_cache_host_reserve_mib;
     mparams.check_tensors   = params.check_tensors;
     mparams.use_extra_bufts = !params.no_extra_bufts;
     mparams.no_host         = params.no_host;
@@ -2052,6 +2065,7 @@ float lr_opt::get_lr(float epoch) const {
 bool common_replay_last_token(struct llama_context * ctx, llama_token last_token, int32_t pos) {
     llama_batch batch = llama_batch_get_one(&last_token, 1);
     batch.pos = &pos;
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
     if (llama_decode(ctx, batch)) {
         LOG_ERR("%s: failed to replay last token\n", __func__);
         return false;
@@ -2059,14 +2073,14 @@ bool common_replay_last_token(struct llama_context * ctx, llama_token last_token
     return true;
 }
 
-bool common_prompt_batch_decode(
-              struct llama_context * ctx,
-    const std::vector<llama_token> & all_tokens,
-                               int   n_new,
-                               int & n_past,
-                               int   n_batch,
-                  std::string_view   state_path,
-                              bool   save_state) {
+bool common_prompt_batch_decode(struct llama_context *           ctx,
+                                const std::vector<llama_token> & all_tokens,
+                                int                              n_new,
+                                int &                            n_past,
+                                int                              n_batch,
+                                std::string_view                 state_path,
+                                bool                             save_state,
+                                enum llama_batch_phase           phase) {
     if (n_new == 0) {
         return true;
     }
@@ -2082,7 +2096,10 @@ bool common_prompt_batch_decode(
         // Memory implementations in recurrent/hybrid models don't support removing tokens from their
         // memory, so we can't just remove the last token from the memory and replay the last token which
         // is the reason for this logic.
-        if (llama_decode(ctx, llama_batch_get_one(const_cast<llama_token*>(all_tokens.data() + offset), n_tokens_before_last))) {
+        llama_batch prefix_batch =
+            llama_batch_get_one(const_cast<llama_token *>(all_tokens.data() + offset), n_tokens_before_last);
+        prefix_batch.phase = phase;
+        if (llama_decode(ctx, prefix_batch)) {
             COM_ERR("%s", "failed to eval\n");
             return false;
         }
@@ -2095,6 +2112,7 @@ bool common_prompt_batch_decode(
         llama_batch batch = llama_batch_get_one(&last_token, 1);
         int32_t pos = n_past;
         batch.pos = &pos;
+        batch.phase            = phase;
 
         if (llama_decode(ctx, batch)) {
             COM_ERR("%s", "failed to eval last token\n");
@@ -2102,7 +2120,9 @@ bool common_prompt_batch_decode(
         }
         n_past++;
     } else {
-        if (llama_decode(ctx, llama_batch_get_one(const_cast<llama_token*>(all_tokens.data() + offset), n_new))) {
+        llama_batch batch = llama_batch_get_one(const_cast<llama_token *>(all_tokens.data() + offset), n_new);
+        batch.phase       = phase;
+        if (llama_decode(ctx, batch)) {
             COM_ERR("%s", "failed to eval\n");
             return false;
         }

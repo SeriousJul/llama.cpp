@@ -77,6 +77,7 @@ int llama_batched_bench(int argc, char ** argv) {
     const int32_t n_kv_max = llama_n_ctx(ctx);
 
     llama_batch batch = llama_batch_init(n_kv_max, 0, 1);
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
     // decode in batches of ctx_params.n_batch tokens
     auto decode_helper = [](llama_context * ctx, llama_batch & batch, int32_t n_batch, bool synchronize) {
@@ -84,13 +85,8 @@ int llama_batched_bench(int argc, char ** argv) {
             const int32_t n_tokens = std::min(n_batch, batch.n_tokens - i);
 
             llama_batch batch_view = {
-                n_tokens,
-                batch.token    + i,
-                nullptr,
-                batch.pos      + i,
-                batch.n_seq_id + i,
-                batch.seq_id   + i,
-                batch.logits   + i,
+                n_tokens,           batch.token + i,  nullptr,          batch.pos + i,
+                batch.n_seq_id + i, batch.seq_id + i, batch.logits + i, batch.phase,
             };
 
             const int ret = llama_decode(ctx, batch_view);
@@ -143,6 +139,7 @@ int llama_batched_bench(int argc, char ** argv) {
                 }
 
                 common_batch_clear(batch);
+                batch.phase = LLAMA_BATCH_PHASE_PROMPT;
 
                 for (int j = 0; j < (is_pp_shared ? 1 : pl); ++j) {
                     for (int i = 0; i < pp; ++i) {
@@ -173,6 +170,7 @@ int llama_batched_bench(int argc, char ** argv) {
                     if (!params.kv_unified) {
                         // run one dummy token to apply the memory copy
                         common_batch_clear(batch);
+                        batch.phase = LLAMA_BATCH_PHASE_GENERATION;
                         common_batch_add(batch, get_token_rand(), pp + 0, { 0 }, true);
                         if (!decode_helper(ctx, batch, ctx_params.n_batch, true)) {
                             LOG_ERR("%s: llama_decode() failed\n", __func__);
@@ -192,6 +190,7 @@ int llama_batched_bench(int argc, char ** argv) {
                     for (int j = 0; j < pl; ++j) {
                         for (int i = 0; i < tg; ++i) {
                             common_batch_clear(batch);
+                            batch.phase = LLAMA_BATCH_PHASE_GENERATION;
 
                             common_batch_add(batch, get_token_rand(), pp + i, { j }, true);
 
@@ -208,6 +207,7 @@ int llama_batched_bench(int argc, char ** argv) {
                     // 0123 0123 0123 ...
                     for (int i = 0; i < tg; ++i) {
                         common_batch_clear(batch);
+                        batch.phase = LLAMA_BATCH_PHASE_GENERATION;
 
                         for (int j = 0; j < pl; ++j) {
                             common_batch_add(batch, get_token_rand(), pp + i, { j }, true);

@@ -27,14 +27,15 @@ class common_params_fit_exception : public std::runtime_error {
 };
 
 static std::vector<llama_device_memory_data> common_get_device_memory_data_impl(
-        const char * path_model,
-        const llama_model_params * mparams,
-        const llama_context_params * cparams,
-        std::vector<ggml_backend_dev_t> & devs,
-        uint32_t & hp_ngl,
-        uint32_t & hp_n_ctx_train,
-        uint32_t & hp_n_expert,
-        ggml_log_level log_level) {
+    const char *                      path_model,
+    const llama_model_params *        mparams,
+    const llama_context_params *      cparams,
+    std::vector<ggml_backend_dev_t> & devs,
+    uint32_t &                        hp_ngl,
+    uint32_t &                        hp_n_ctx_train,
+    uint32_t &                        hp_n_expert,
+    ggml_log_level                    log_level,
+    llama_moe_weight_inventory *      moe_inventory = nullptr) {
     struct user_data_t {
         struct {
             ggml_log_callback callback;
@@ -142,6 +143,9 @@ static std::vector<llama_device_memory_data> common_get_device_memory_data_impl(
     }
     hp_n_ctx_train = llama_model_n_ctx_train(model);
     hp_n_expert    = llama_model_n_expert(model);
+    if (moe_inventory != nullptr) {
+        *moe_inventory = llama_model_moe_weight_inventory(model);
+    }
 
     common_memory_breakdown_print(ctx);
 
@@ -190,12 +194,24 @@ static void common_params_fit_impl(
     uint32_t hp_ngl = 0; // hparams.n_gpu_layers
     uint32_t hp_nct = 0; // hparams.n_ctx_train
     uint32_t hp_nex = 0; // hparams.n_expert
+    llama_moe_weight_inventory      moe_inventory = {};
 
     // step 1: get data for default parameters and check whether any changes are necessary in the first place
 
     LOG_TRC("%s: getting device memory data for initial parameters:\n", __func__);
-    const dmds_t dmds_full = common_get_device_memory_data_impl(path_model, mparams, cparams, devs, hp_ngl, hp_nct, hp_nex, log_level);
+    const dmds_t dmds_full = common_get_device_memory_data_impl(path_model, mparams, cparams, devs, hp_ngl, hp_nct,
+                                                                hp_nex, log_level, &moe_inventory);
     const size_t nd = devs.size(); // number of devices
+    auto         disable_cache_for_static_experts = [&]() {
+        const bool has_override =
+            mparams->tensor_buft_overrides != nullptr &&
+            (mparams->tensor_buft_overrides->pattern != nullptr || mparams->tensor_buft_overrides->buft != nullptr);
+        if (nd > 0 && hp_nex > 0 && !has_override && mparams->n_gpu_layers >= int(hp_ngl) &&
+            mparams->moe_cache_mode != LLAMA_MOE_CACHE_MODE_OFF) {
+            LOG_TRC("%s: all routed experts fit statically, disabling the MoE cache\n", __func__);
+            mparams->moe_cache_mode = LLAMA_MOE_CACHE_MODE_OFF;
+        }
+    };
 
     std::vector<int64_t> margins; // this function uses int64_t rather than size_t for memory sizes to more conveniently handle deficits
     margins.reserve(nd);
@@ -270,6 +286,7 @@ static void common_params_fit_impl(
             if (projected_free_per_device[0] >= margins[0]) {
                 LOG_TRC("%s: will leave %" PRId64 " >= %" PRId64 " MiB of free device memory, no changes needed\n",
                     __func__, projected_free_per_device[0]/MiB, margins[0]/MiB);
+                disable_cache_for_static_experts();
                 return;
             }
         } else {
@@ -282,6 +299,7 @@ static void common_params_fit_impl(
             }
             if (!changes_needed) {
                 LOG_TRC("%s: targets for free memory can be met on all devices, no changes needed\n", __func__);
+                disable_cache_for_static_experts();
                 return;
             }
         }
@@ -349,6 +367,7 @@ static void common_params_fit_impl(
                             __func__, hp_nct, cparams->n_ctx, memory_reduction/MiB);
                         if (nd <= 1) {
                             LOG_TRC("%s: entire model can be fit by reducing context\n", __func__);
+                            disable_cache_for_static_experts();
                             return;
                         }
                         LOG_TRC("%s: entire model should be fit across devices by reducing context\n", __func__);
@@ -526,7 +545,7 @@ static void common_params_fit_impl(
         return ret;
     };
 
-    int64_t global_surplus_cpu_moe = 0;
+    std::vector<llama_device_memory_data> dmds_cpu_moe;
     if (hp_nex > 0) {
         const static std::string pattern_moe_all = "blk\\.\\d+\\.ffn_(up|down|gate_up|gate)_(ch|)exps"; // matches all MoE tensors
         ggml_backend_buffer_type_t cpu_buft = ggml_backend_cpu_buffer_type();
@@ -535,12 +554,66 @@ static void common_params_fit_impl(
         mparams->tensor_buft_overrides = tensor_buft_overrides;
 
         LOG_TRC("%s: getting device memory data with all MoE tensors moved to system memory:\n", __func__);
-        const dmds_t dmds_cpu_moe = common_get_device_memory_data_impl(
-            path_model, mparams, cparams, devs, hp_ngl, hp_nct, hp_nex, log_level);
+        dmds_cpu_moe =
+            common_get_device_memory_data_impl(path_model, mparams, cparams, devs, hp_ngl, hp_nct, hp_nex, log_level);
+
+        // reset
+        tensor_buft_overrides[0]       = { nullptr, nullptr };
+        mparams->tensor_buft_overrides = tensor_buft_overrides;
+    }
+
+    std::vector<int64_t> moe_cache_l1_reserve(nd, 0);
+    if (hp_nex > 0 && mparams->moe_cache_mode != LLAMA_MOE_CACHE_MODE_OFF && moe_inventory.n_tensors > 0) {
+        if (moe_inventory.largest_expert_bytes > size_t(INT64_MAX)) {
+            throw common_params_fit_exception("MoE expert range is too large");
+        }
+        if (mparams->moe_cache_vram_mib > size_t(INT64_MAX / MiB)) {
+            throw common_params_fit_exception("MoE VRAM cache budget is too large");
+        }
+
+        const int64_t expert_extent   = moe_inventory.largest_expert_bytes;
+        const int64_t expert_bytes    = std::min<size_t>(moe_inventory.total_bytes, INT64_MAX);
+        const int64_t numeric_ceiling = mparams->moe_cache_vram_mib * MiB;
+        const int64_t min_by_expert   = expert_extent > INT64_MAX / 8 ? INT64_MAX : 8 * expert_extent;
+        const int64_t min_automatic   = std::max<int64_t>(1024 * MiB, min_by_expert);
+        int64_t       total_reserve   = 0;
 
         for (size_t id = 0; id < nd; id++) {
+            const int64_t flex =
+                std::max<int64_t>(0, dmds_cpu_moe[id].free - dmds_cpu_moe[id].mb.total() - margins[id]);
+            int64_t ceiling = mparams->moe_cache_vram_mib != 0                     ? std::min(flex, numeric_ceiling) :
+                              mparams->moe_cache_mode == LLAMA_MOE_CACHE_MODE_AUTO ? flex / 2 :
+                                                                                     flex;
+            ceiling         = std::min(ceiling, expert_bytes);
+            if (expert_extent > 0) {
+                ceiling -= ceiling % expert_extent;
+            }
+            if (mparams->moe_cache_vram_mib == 0 && ceiling < min_automatic) {
+                ceiling = 0;
+            }
+            moe_cache_l1_reserve[id] = ceiling;
+            total_reserve += ceiling;
+            LOG_TRC("%s: id=%zu, flexible=%" PRId64 " MiB, MoE cache reserve=%" PRId64 " MiB\n", __func__, id,
+                    flex / MiB, ceiling / MiB);
+        }
+
+        if (total_reserve == 0) {
+            if (mparams->moe_cache_mode == LLAMA_MOE_CACHE_MODE_GENERATION) {
+                throw common_params_fit_exception("insufficient device memory for a useful MoE cache");
+            }
+            LOG_WRN("%s: disabling automatic MoE cache because no device has enough safe capacity\n", __func__);
+            mparams->moe_cache_mode = LLAMA_MOE_CACHE_MODE_OFF;
+        } else {
+            LOG_TRC("%s: reserving %" PRId64 " MiB of device memory for the MoE cache\n", __func__,
+                    total_reserve / MiB);
+        }
+    }
+
+    int64_t global_surplus_cpu_moe = 0;
+    if (hp_nex > 0) {
+        for (size_t id = 0; id < nd; id++) {
             global_surplus_cpu_moe += dmds_cpu_moe[id].free;
-            global_surplus_cpu_moe -= int64_t(dmds_cpu_moe[id].mb.total()) + margins[id];
+            global_surplus_cpu_moe -= int64_t(dmds_cpu_moe[id].mb.total()) + margins[id] + moe_cache_l1_reserve[id];
         }
 
         if (global_surplus_cpu_moe > 0) {
@@ -550,17 +623,14 @@ static void common_params_fit_impl(
             LOG_TRC("%s: with only dense weights in device memory there is still a total deficit of %" PRId64 " MiB\n",
                 __func__, -global_surplus_cpu_moe/MiB);
         }
-
-        // reset
-        tensor_buft_overrides[0] = {nullptr, nullptr};
-        mparams->tensor_buft_overrides = tensor_buft_overrides;
     }
 
     std::vector<int64_t> targets; // maximum acceptable memory use per device
     targets.reserve(nd);
     for (size_t id = 0; id < nd; id++) {
-        targets.push_back(dmds_full[id].free - margins[id]);
-        LOG_TRC("%s: id=%zu, target=%" PRId64 " MiB\n", __func__, id, targets[id]/MiB);
+        targets.push_back(dmds_full[id].free - margins[id] - moe_cache_l1_reserve[id]);
+        LOG_TRC("%s: id=%zu, target=%" PRId64 " MiB, MoE cache reserve=%" PRId64 " MiB\n", __func__, id,
+                targets[id] / MiB, moe_cache_l1_reserve[id] / MiB);
     }
 
     std::vector<ggml_backend_buffer_type_t> overflow_bufts; // which bufts the first partial layer of a device overflows to:
@@ -639,7 +709,7 @@ static void common_params_fit_impl(
             "%s:   - %s: %2" PRIu32 " layers, %6" PRId64 " MiB used, %6" PRId64 " MiB free\n",
             __func__, dev_names[id].c_str(), ngl_per_device[id].n_layer, mem[id]/MiB, projected_margin/MiB);
     }
-    if (hp_nex == 0 || global_surplus_cpu_moe <= 0) {
+    if (hp_nex == 0 || global_surplus_cpu_moe <= 0 || mparams->moe_cache_mode == LLAMA_MOE_CACHE_MODE_GENERATION) {
         set_ngl_tensor_split_tbo(ngl_per_device, overflow_bufts, *mparams);
         return;
     }

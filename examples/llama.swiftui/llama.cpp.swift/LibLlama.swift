@@ -134,6 +134,7 @@ actor LlamaContext {
         }
 
         llama_batch_clear(&batch)
+        batch.phase = LLAMA_BATCH_PHASE_PROMPT
 
         for i1 in 0..<tokens_list.count {
             let i = Int(i1)
@@ -179,6 +180,7 @@ actor LlamaContext {
         // tokens_list.append(new_token_id)
 
         llama_batch_clear(&batch)
+        batch.phase = LLAMA_BATCH_PHASE_GENERATION
         llama_batch_add(&batch, new_token_id, n_cur, [0], true)
 
         n_decode += 1
@@ -202,6 +204,7 @@ actor LlamaContext {
             // bench prompt processing
 
             llama_batch_clear(&batch)
+            batch.phase = LLAMA_BATCH_PHASE_PROMPT
 
             let n_tokens = pp
 
@@ -229,6 +232,7 @@ actor LlamaContext {
 
             for i in 0..<tg {
                 llama_batch_clear(&batch)
+                batch.phase = LLAMA_BATCH_PHASE_GENERATION
 
                 for j in 0..<pl {
                     llama_batch_add(&batch, 0, Int32(i), [Int32(j)], true)

@@ -472,6 +472,11 @@ struct common_params {
     // margin per device in bytes for fitting parameters to free memory:
     std::vector<size_t> fit_params_target = std::vector<size_t>(llama_max_devices(), 1024 * 1024*1024);
 
+    enum llama_moe_cache_mode moe_cache_mode             = LLAMA_MOE_CACHE_MODE_AUTO;
+    size_t                    moe_cache_vram_mib         = 0;  // per-device L1 ceiling, 0 = automatic
+    size_t                    moe_cache_ram_mib          = 0;  // process L2 ceiling, 0 = automatic
+    size_t                    moe_cache_host_reserve_mib = 0;  // host memory safety margin, 0 = automatic
+
     enum llama_split_mode split_mode = LLAMA_SPLIT_MODE_LAYER; // how to split the model across GPUs
     enum llama_load_mode  load_mode  = LLAMA_LOAD_MODE_AUTO; // how to load the model
 
@@ -986,14 +991,14 @@ void common_batch_add(
 // Note: We save state before the last token so that we can replay it to ensure
 // compatibility with all memory types. Recurrent/hybrid models cannot remove
 // tokens from memory, so this approach works across all model architectures.
-bool common_prompt_batch_decode(
-              struct llama_context * ctx,
-    const std::vector<llama_token> & all_tokens,
-                               int   n_new,
-                               int & n_past,
-                               int   n_batch,
-                  std::string_view   state_path,
-                              bool   save_state);
+bool common_prompt_batch_decode(struct llama_context *           ctx,
+                                const std::vector<llama_token> & all_tokens,
+                                int                              n_new,
+                                int &                            n_past,
+                                int                              n_batch,
+                                std::string_view                 state_path,
+                                bool                             save_state,
+                                enum llama_batch_phase           phase = LLAMA_BATCH_PHASE_PROMPT);
 
 // replays the last token after loading state to regenerate logits
 // used after loading session state to ensure the sampling context has valid logits

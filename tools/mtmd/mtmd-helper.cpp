@@ -203,6 +203,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
     GGML_ASSERT(n_batch > 0);
     int32_t ret;
     llama_batch text_batch = llama_batch_init(n_batch, 0, 1);
+    text_batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
     auto chunk_type = mtmd_input_chunk_get_type(chunk);
 
     if (chunk_type == MTMD_INPUT_CHUNK_TYPE_TEXT) {

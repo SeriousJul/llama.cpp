@@ -88,14 +88,15 @@ struct decode_embd_batch {
         logits  .resize(n_tokens);
         seq_id_0.resize(1);
         seq_ids [n_tokens] = nullptr;
-        batch = {
-            /*n_tokens       =*/ n_tokens,
-            /*tokens         =*/ nullptr,
-            /*embd           =*/ embd,
-            /*pos            =*/ pos.data(),
-            /*n_seq_id       =*/ n_seq_id.data(),
-            /*seq_id         =*/ seq_ids.data(),
-            /*logits         =*/ logits.data(),
+        batch              = {
+            /*n_tokens       =*/n_tokens,
+            /*tokens         =*/nullptr,
+            /*embd           =*/embd,
+            /*pos            =*/pos.data(),
+            /*n_seq_id       =*/n_seq_id.data(),
+            /*seq_id         =*/seq_ids.data(),
+            /*logits         =*/logits.data(),
+            /*phase         =*/LLAMA_BATCH_PHASE_PROMPT,
         };
     }
 
@@ -168,13 +169,14 @@ struct decode_embd_batch {
             pos_ptr = pos.data() + offset;
         }
         return {
-            /*n_tokens       =*/ n_tokens,
-            /*tokens         =*/ nullptr,
-            /*embd           =*/ batch.embd     + offset * n_mmproj_embd,
-            /*pos            =*/ pos_ptr,
-            /*n_seq_id       =*/ batch.n_seq_id + offset,
-            /*seq_id         =*/ batch.seq_id   + offset,
-            /*logits         =*/ batch.logits   + offset,
+            /*n_tokens       =*/n_tokens,
+            /*tokens         =*/nullptr,
+            /*embd           =*/batch.embd + offset * n_mmproj_embd,
+            /*pos            =*/pos_ptr,
+            /*n_seq_id       =*/batch.n_seq_id + offset,
+            /*seq_id         =*/batch.seq_id + offset,
+            /*logits         =*/batch.logits + offset,
+            /*phase          =*/batch.phase,
         };
     }
 };

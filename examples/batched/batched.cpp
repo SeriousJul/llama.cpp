@@ -118,6 +118,7 @@ int main(int argc, char ** argv) {
     // create a llama_batch
     // we use this object to submit token data for decoding
     llama_batch batch = llama_batch_init(std::max(tokens_list.size(), (size_t) n_parallel), 0, n_parallel);
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
     std::vector<llama_seq_id> seq_ids(n_parallel, 0);
     for (int32_t i = 0; i < n_parallel; ++i) {
@@ -143,6 +144,7 @@ int main(int argc, char ** argv) {
 
         common_batch_clear(batch);
         common_batch_add(batch, decoder_start_token_id, 0, seq_ids, false);
+        batch.phase = LLAMA_BATCH_PHASE_GENERATION;
     }
 
     // llama_decode will output logits only for the last token of the prompt
@@ -180,6 +182,7 @@ int main(int argc, char ** argv) {
     while (n_cur <= n_predict) {
         // prepare the next batch
         common_batch_clear(batch);
+        batch.phase = LLAMA_BATCH_PHASE_GENERATION;
 
         // sample the next token for each parallel sequence / stream
         for (int32_t i = 0; i < n_parallel; ++i) {

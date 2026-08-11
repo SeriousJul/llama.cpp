@@ -10,8 +10,10 @@
 struct llama_batch_ptr {
     llama_batch batch;
 
-    llama_batch_ptr(int32_t n_tokens, int32_t embd, int32_t n_seq_max)
-        : batch{llama_batch_init(n_tokens, embd, n_seq_max)} {}
+    llama_batch_ptr(int32_t n_tokens, int32_t embd, int32_t n_seq_max) :
+        batch{ llama_batch_init(n_tokens, embd, n_seq_max) } {
+        batch.phase = LLAMA_BATCH_PHASE_GENERATION;
+    }
 
     ~llama_batch_ptr() { llama_batch_free(batch); }
 
@@ -102,6 +104,7 @@ static bool test_seq_rm_isolated(
     const size_t n_tokens = tokens.size() < 128 ? tokens.size() : 128;
     for (llama_seq_id seq_id = 0; seq_id < 2; ++seq_id) {
         llama_batch_ptr batch(n_tokens, 0, 1);
+        batch.get().phase = LLAMA_BATCH_PHASE_PROMPT;
         for (size_t i = 0; i < n_tokens; ++i) {
             common_batch_add(batch.get(), tokens[i], i, { seq_id }, false);
         }

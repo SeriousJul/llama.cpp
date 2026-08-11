@@ -190,9 +190,15 @@ int main(int argc, char ** argv) {
     const auto t_enc_start = ggml_time_us();
 
     // eval the prompt with both models
-    llama_decode(ctx_tgt, llama_batch_get_one( inp.data(), n_input - 1));
-    llama_decode(ctx_tgt, llama_batch_get_one(&inp.back(),           1));
-    llama_decode(ctx_dft, llama_batch_get_one( inp.data(), n_input));
+    llama_batch prompt_batch = llama_batch_get_one(inp.data(), n_input - 1);
+    prompt_batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx_tgt, prompt_batch);
+    prompt_batch       = llama_batch_get_one(&inp.back(), 1);
+    prompt_batch.phase = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx_tgt, prompt_batch);
+    prompt_batch       = llama_batch_get_one(inp.data(), n_input);
+    prompt_batch.phase = LLAMA_BATCH_PHASE_PROMPT;
+    llama_decode(ctx_dft, prompt_batch);
 
     const auto t_enc_end = ggml_time_us();
 
@@ -225,6 +231,8 @@ int main(int argc, char ** argv) {
 
     llama_batch batch_dft = llama_batch_init(llama_n_batch(ctx_dft), 0, 1);
     llama_batch batch_tgt = llama_batch_init(llama_n_batch(ctx_tgt), 0, n_seq_dft);
+    batch_dft.phase       = LLAMA_BATCH_PHASE_GENERATION;
+    batch_tgt.phase       = LLAMA_BATCH_PHASE_VERIFICATION;
 
     const auto t_dec_start = ggml_time_us();
 

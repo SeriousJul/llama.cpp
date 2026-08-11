@@ -4596,6 +4596,44 @@ void ggml_backend_cuda_get_device_memory(int device, size_t * free, size_t * tot
     *total /= share_count;
 }
 
+static bool ggml_backend_cuda_host_register_checked(void * buffer, size_t size) {
+#if CUDART_VERSION >= 11010 || defined(GGML_USE_MUSA) || defined(GGML_USE_HIP)
+    cudaError_t err = cudaHostRegister(buffer, size, cudaHostRegisterPortable | cudaHostRegisterReadOnly);
+    if (err == cudaErrorNotSupported) {
+        (void) cudaGetLastError();
+        GGML_LOG_WARN_ONCE(
+            "ggml_backend_cuda_host_register_checked: CUDA read-only host registration is unsupported; using portable "
+            "pinning\n");
+        err = cudaHostRegister(buffer, size, cudaHostRegisterPortable);
+    }
+    if (err != cudaSuccess) {
+        (void) cudaGetLastError();
+        GGML_LOG_DEBUG("%s: failed to register %.2f MiB of pinned memory: %s\n", __func__, size / 1024.0 / 1024.0,
+                       cudaGetErrorString(err));
+        return false;
+    }
+    return true;
+#else
+    GGML_UNUSED(buffer);
+    GGML_UNUSED(size);
+    return false;
+#endif
+}
+
+static bool ggml_backend_cuda_host_unregister_checked(void * buffer) {
+#if CUDART_VERSION >= 11010 || defined(GGML_USE_MUSA) || defined(GGML_USE_HIP)
+    cudaError_t err = cudaHostUnregister(buffer);
+    if (err != cudaSuccess) {
+        (void) cudaGetLastError();
+        return false;
+    }
+    return true;
+#else
+    GGML_UNUSED(buffer);
+    return false;
+#endif
+}
+
 bool ggml_backend_cuda_register_host_buffer(void * buffer, size_t size) {
     if (getenv("GGML_CUDA_REGISTER_HOST") == nullptr) {
         return false;
@@ -5433,6 +5471,12 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
     }
     if (strcmp(name, "ggml_backend_comm_allreduce_tensor") == 0) {
         return (void *)ggml_backend_cuda_comm_allreduce_tensor;
+    }
+    if (strcmp(name, "ggml_backend_cuda_host_register_checked") == 0) {
+        return (void *) ggml_backend_cuda_host_register_checked;
+    }
+    if (strcmp(name, "ggml_backend_cuda_host_unregister_checked") == 0) {
+        return (void *) ggml_backend_cuda_host_unregister_checked;
     }
     if (strcmp(name, "ggml_backend_register_host_buffer") == 0) {
         return (void *)ggml_backend_cuda_register_host_buffer;

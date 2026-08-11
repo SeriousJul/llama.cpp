@@ -28,6 +28,21 @@ enum llama_fver {
 
 const char * llama_file_version_name(llama_fver version);
 
+struct llama_tensor_source {
+    const ggml_tensor * tensor;
+    std::string         name;
+    uint32_t            source_id;
+    uint32_t            shard_index;
+    uint64_t            tensor_offset;
+    uint64_t            tensor_length;
+    uint64_t            shard_length;
+    uint64_t            source_device;
+    uint64_t            source_inode;
+    size_t              memory_alignment;
+    size_t              offset_alignment;
+    ggml_type           type;
+};
+
 struct llama_model_loader {
     // Holds information on a model weight
     struct llama_tensor_weight {
@@ -82,7 +97,18 @@ struct llama_model_loader {
     bool no_alloc;
     bool load_mtp;
 
+    struct moe_cache_file_info {
+        uint64_t device;
+        uint64_t inode;
+        uint64_t size;
+        size_t   memory_alignment;
+        size_t   offset_alignment;
+    };
+
     llama_files files;
+    std::vector<std::string>         file_paths;
+    llama_files                      moe_cache_files;
+    std::vector<moe_cache_file_info> moe_cache_file_infos;
     llama_ftype ftype;
     llama_fver  fver;
 
@@ -190,7 +216,16 @@ struct llama_model_loader {
 
     void done_getting_tensors(bool partial = false) const;
 
-    void init_mappings(bool prefetch = true, llama_mlocks * mlock_mmaps = nullptr);
+    void init_mappings(enum llama_mmap_policy policy, llama_mlocks * mlock_mmaps = nullptr);
+
+    bool init_moe_cache_sources(std::string & error);
+    bool get_tensor_source(const struct ggml_tensor *   tensor,
+                           uint32_t                     source_id,
+                           struct llama_tensor_source & source) const;
+    bool get_moe_cache_source(const struct ggml_tensor *     tensor,
+                              int64_t                        n_expert,
+                              uint32_t                       source_id,
+                              struct ggml_moe_cache_source & source) const;
 
     void get_mapping_range(size_t * first, size_t * last, void ** addr, int idx, ggml_context * ctx) const;
 

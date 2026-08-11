@@ -306,6 +306,55 @@ extern "C" {
 
     typedef struct ggml_backend_sched * ggml_backend_sched_t;
 
+#define GGML_MOE_CACHE_MAX_DEVICES 16
+
+    enum ggml_moe_cache_mode {
+        GGML_MOE_CACHE_MODE_OFF        = 0,
+        GGML_MOE_CACHE_MODE_AUTO       = 1,
+        GGML_MOE_CACHE_MODE_GENERATION = 2,
+    };
+
+    struct ggml_moe_cache_config {
+        enum ggml_moe_cache_mode mode;
+        size_t                   l1_bytes_per_device;
+        size_t                   l2_bytes;
+        size_t                   host_reserve_bytes;
+        size_t                   largest_expert_extent;
+        bool                     strict;
+    };
+
+    struct ggml_moe_cache_source {
+        const struct ggml_tensor * tensor;
+        const char *               tensor_name;
+        int                        fd;
+        uint32_t                   source_id;
+        uint32_t                   shard_index;
+        uint64_t                   tensor_offset;
+        uint64_t                   tensor_length;
+        uint64_t                   shard_length;
+        uint64_t                   source_device;
+        uint64_t                   source_inode;
+        size_t                     memory_alignment;
+        size_t                     offset_alignment;
+        enum ggml_type             type;
+        int64_t                    n_expert;
+        size_t                     expert_size;
+        size_t                     tensor_bytes;
+    };
+
+    struct ggml_moe_cache_stats {
+        size_t   l1_capacity;
+        size_t   l2_capacity;
+        uint64_t l1_hits;
+        uint64_t l2_hits;
+        uint64_t l3_read_count;
+        uint64_t l3_logical_bytes;
+        uint64_t l3_physical_bytes;
+        uint64_t l1_evictions;
+        uint64_t l2_evictions;
+        uint64_t l3_wait_us;
+    };
+
     // Evaluation callback for each node in the graph (set with ggml_backend_sched_set_eval_callback)
     // when ask == true, the scheduler wants to know if the user wants to observe this node
     // this allows the scheduler to batch nodes together in order to evaluate them in a single call
@@ -349,6 +398,17 @@ extern "C" {
     // This in effect deallocates all tensors that were previously allocated and leaves them with dangling pointers.
     // The correct way to use this API is to discard the deallocated tensors and create new ones.
     GGML_API void                 ggml_backend_sched_reset(ggml_backend_sched_t sched);
+
+    GGML_API bool ggml_backend_sched_moe_cache_configure(ggml_backend_sched_t                 sched,
+                                                         const struct ggml_moe_cache_config * config,
+                                                         const struct ggml_moe_cache_source * sources,
+                                                         size_t                               n_sources);
+    GGML_API bool ggml_backend_sched_moe_cache_activate(ggml_backend_sched_t sched);
+    GGML_API void ggml_backend_sched_moe_cache_set_eligible(ggml_backend_sched_t sched, bool eligible);
+    GGML_API struct ggml_moe_cache_stats ggml_backend_sched_moe_cache_get_stats(ggml_backend_sched_t sched);
+    GGML_API void                        ggml_backend_sched_moe_cache_reset_stats(ggml_backend_sched_t sched);
+    GGML_API bool         ggml_backend_sched_moe_cache_consume_placement_invalidated(ggml_backend_sched_t sched);
+    GGML_API const char * ggml_backend_sched_moe_cache_get_error(ggml_backend_sched_t sched);
 
     // Set a callback to be called for each resulting node during graph compute
     GGML_API void                 ggml_backend_sched_set_eval_callback(ggml_backend_sched_t sched, ggml_backend_sched_eval_callback callback, void * user_data);

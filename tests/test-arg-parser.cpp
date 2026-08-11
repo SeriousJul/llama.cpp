@@ -217,6 +217,47 @@ static void test(void) {
     assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
     assert(params.load_mode == LLAMA_LOAD_MODE_DIRECT_IO);
 
+    {
+        common_params moe_params;
+        assert(moe_params.moe_cache_mode == LLAMA_MOE_CACHE_MODE_AUTO);
+        assert(moe_params.moe_cache_vram_mib == 0);
+        assert(moe_params.moe_cache_ram_mib == 0);
+        assert(moe_params.moe_cache_host_reserve_mib == 0);
+
+        argv = { "binary_name", "-m",
+                 "test.gguf",   "--moe-cache",
+                 "generation",  "--moe-cache-vram",
+                 "4096",        "--moe-cache-ram",
+                 "8192",        "--moe-cache-host-reserve",
+                 "12288" };
+        assert(true ==
+               common_params_parse(argv.size(), list_str_to_char(argv).data(), moe_params, LLAMA_EXAMPLE_COMMON));
+        assert(moe_params.moe_cache_mode == LLAMA_MOE_CACHE_MODE_GENERATION);
+        assert(moe_params.moe_cache_vram_mib == 4096);
+        assert(moe_params.moe_cache_ram_mib == 8192);
+        assert(moe_params.moe_cache_host_reserve_mib == 12288);
+
+        const auto model_params = common_model_params_to_llama(moe_params);
+        assert(model_params.moe_cache_mode == LLAMA_MOE_CACHE_MODE_GENERATION);
+        assert(model_params.moe_cache_vram_mib == 4096);
+        assert(model_params.moe_cache_ram_mib == 8192);
+        assert(model_params.moe_cache_host_reserve_mib == 12288);
+
+        common_params no_offload_params;
+        argv = { "binary_name", "-m", "test.gguf", "--moe-cache", "generation", "--no-op-offload" };
+        assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), no_offload_params,
+                                           LLAMA_EXAMPLE_COMMON));
+        assert(common_model_params_to_llama(no_offload_params).moe_cache_mode == LLAMA_MOE_CACHE_MODE_OFF);
+
+        argv = { "binary_name", "--moe-cache", "invalid" };
+        assert(false ==
+               common_params_parse(argv.size(), list_str_to_char(argv).data(), moe_params, LLAMA_EXAMPLE_COMMON));
+
+        argv = { "binary_name", "--moe-cache-vram", "-1" };
+        assert(false ==
+               common_params_parse(argv.size(), list_str_to_char(argv).data(), moe_params, LLAMA_EXAMPLE_COMMON));
+    }
+
     // multi-value args (CSV)
     argv = {"binary_name", "--lora", "file1.gguf,\"file2,2.gguf\",\"file3\"\"3\"\".gguf\",file4\".gguf"};
     assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
@@ -266,6 +307,27 @@ static void test(void) {
     argv = {"binary_name"};
     assert(true == common_params_parse(argv.size(), list_str_to_char(argv).data(), params, LLAMA_EXAMPLE_COMMON));
     assert(params.load_mode == LLAMA_LOAD_MODE_DIRECT_IO);
+
+    {
+        common_params moe_params;
+        setenv("LLAMA_ARG_MOE_CACHE", "generation", true);
+        setenv("LLAMA_ARG_MOE_CACHE_VRAM", "1024", true);
+        setenv("LLAMA_ARG_MOE_CACHE_RAM", "2048", true);
+        setenv("LLAMA_ARG_MOE_CACHE_HOST_RESERVE", "8192", true);
+
+        argv = { "binary_name", "-m", "test.gguf", "--moe-cache", "off", "--moe-cache-ram", "512" };
+        assert(true ==
+               common_params_parse(argv.size(), list_str_to_char(argv).data(), moe_params, LLAMA_EXAMPLE_COMMON));
+        assert(moe_params.moe_cache_mode == LLAMA_MOE_CACHE_MODE_OFF);
+        assert(moe_params.moe_cache_vram_mib == 1024);
+        assert(moe_params.moe_cache_ram_mib == 512);
+        assert(moe_params.moe_cache_host_reserve_mib == 8192);
+
+        unsetenv("LLAMA_ARG_MOE_CACHE");
+        unsetenv("LLAMA_ARG_MOE_CACHE_VRAM");
+        unsetenv("LLAMA_ARG_MOE_CACHE_RAM");
+        unsetenv("LLAMA_ARG_MOE_CACHE_HOST_RESERVE");
+    }
 
     printf("test-arg-parser: test negated environment variables\n\n");
 

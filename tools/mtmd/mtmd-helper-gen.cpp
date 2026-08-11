@@ -266,6 +266,7 @@ public:
 
         const int n_pos_per_embd = mrope ? 4 : 1;
         decode_embd_batch batch_embd(fb.data(), 1, n_pos_per_embd, n_embd);
+        batch_embd.batch.phase = LLAMA_BATCH_PHASE_GENERATION;
         if (mrope) batch_embd.set_position_mrope_1d(pos, seq_id);
         else       batch_embd.set_position_normal  (pos, seq_id);
         batch_embd.batch.logits[0] = 1;

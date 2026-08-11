@@ -204,6 +204,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
                 common_speculative_get_devices_str(this->params.devices).c_str());
 
         batch = llama_batch_init(llama_n_batch(ctx_dft), 0, 1);
+        batch.phase = LLAMA_BATCH_PHASE_VERIFICATION;
 
         // TODO: optimize or pass from outside?
         // {
@@ -263,6 +264,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
 
         llama_batch batch_dft = batch;
         batch_dft.logits = nullptr;
+        batch_dft.phase       = LLAMA_BATCH_PHASE_VERIFICATION;
 
         const int ret = llama_decode(ctx_dft, batch_dft);
 
@@ -484,6 +486,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
 
         const int32_t n_b = (int32_t) llama_n_batch(ctx_dft);
         batch = llama_batch_init(/*n_tokens=*/ n_b, /*embd=*/ n_embd_dec, /*n_seq_max=*/ 1);
+        batch.phase       = LLAMA_BATCH_PHASE_VERIFICATION;
         // llama_batch_init allocates only one of token/embd; eagle3 decoder needs both.
         // TODO: fix, how to call without malloc
         batch.token = (llama_token *) malloc(sizeof(llama_token) * n_b);
@@ -631,13 +634,14 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
             const int32_t n_chunk = std::min(n_ubatch_dft, n_tokens - i);
 
             llama_batch enc_batch = {
-                /*.n_tokens =*/ n_chunk,
-                /*.token    =*/ nullptr,
-                /*.embd     =*/ features_buf.data() + (size_t) i * n_embd_enc,
-                /*.pos      =*/ nullptr,
-                /*.n_seq_id =*/ nullptr,
-                /*.seq_id   =*/ nullptr,
-                /*.logits   =*/ nullptr,
+                /*.n_tokens =*/n_chunk,
+                /*.token    =*/nullptr,
+                /*.embd     =*/features_buf.data() + (size_t) i * n_embd_enc,
+                /*.pos      =*/nullptr,
+                /*.n_seq_id =*/nullptr,
+                /*.seq_id   =*/nullptr,
+                /*.logits   =*/nullptr,
+                /*.phase    =*/LLAMA_BATCH_PHASE_VERIFICATION,
             };
             const int32_t rc = llama_encode(ctx_dft, enc_batch);
             if (rc != 0) {
@@ -985,6 +989,8 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
 
         batch        = llama_batch_init(llama_n_batch(ctx_dft), 0,          n_seq);
         batch_inject = llama_batch_init(llama_n_batch(ctx_dft), n_embd_dec, n_seq);
+        batch.phase        = LLAMA_BATCH_PHASE_VERIFICATION;
+        batch_inject.phase = LLAMA_BATCH_PHASE_VERIFICATION;
 
         smpls.resize(n_seq);
         for (auto & s : smpls) {
@@ -1090,13 +1096,14 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
 
                 // fuse extracted features through DFlash encoder
                 llama_batch enc_batch = {
-                    /*.n_tokens =*/ n_chunk,
-                    /*.token    =*/ nullptr,
-                    /*.embd     =*/ features_buf.data(),
-                    /*.pos      =*/ nullptr,
-                    /*.n_seq_id =*/ nullptr,
-                    /*.seq_id   =*/ nullptr,
-                    /*.logits   =*/ nullptr,
+                    /*.n_tokens =*/n_chunk,
+                    /*.token    =*/nullptr,
+                    /*.embd     =*/features_buf.data(),
+                    /*.pos      =*/nullptr,
+                    /*.n_seq_id =*/nullptr,
+                    /*.seq_id   =*/nullptr,
+                    /*.logits   =*/nullptr,
+                    /*.phase    =*/LLAMA_BATCH_PHASE_VERIFICATION,
                 };
 
                 int32_t rc = llama_encode(ctx_dft, enc_batch);
@@ -1314,6 +1321,7 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
         const int32_t n_b = (int32_t) llama_n_batch(ctx_dft);
         batch = llama_batch_init(/*n_tokens=*/ n_b, /*embd=*/ n_embd, /*n_seq_max=*/ 1);
+        batch.phase       = LLAMA_BATCH_PHASE_VERIFICATION;
         // llama_batch_init allocates only one of token/embd; MTP needs both.
         // TODO: fix, how to call without malloc
         batch.token = (llama_token *) malloc(sizeof(llama_token) * n_b);

@@ -1,14 +1,14 @@
 #include "llama-mmap.h"
 
+#include "ggml.h"
 #include "llama-impl.h"
 
-#include "ggml.h"
-
-#include <cstring>
-#include <climits>
-#include <stdexcept>
-#include <cerrno>
 #include <algorithm>
+#include <cerrno>
+#include <climits>
+#include <cstring>
+#include <limits>
+#include <stdexcept>
 
 #ifdef __has_include
     #if __has_include(<unistd.h>)
@@ -22,6 +22,10 @@
             #include <sys/resource.h>
         #endif
     #endif
+#endif
+#if defined(__linux__)
+#    include <linux/stat.h>
+#    include <sys/syscall.h>
 #endif
 
 #if defined(_WIN32)
@@ -83,7 +87,10 @@ struct llama_file::impl {
         return ret;
     }
 
-    impl(const char * fname, const char * mode, [[maybe_unused]] const bool use_direct_io = false) {
+    impl(const char * fname, const char * mode, [[maybe_unused]] enum llama_file_access access) {
+        if (access == LLAMA_FILE_ACCESS_DIRECT_STRICT) {
+            throw std::runtime_error("strict direct I/O is not supported on Windows");
+        }
         fp = ggml_fopen(fname, mode);
         if (fp == NULL) {
             throw std::runtime_error(format("failed to open %s: %s", fname, strerror(errno)));
@@ -170,9 +177,7 @@ struct llama_file::impl {
         write_raw(&val, sizeof(val));
     }
 
-    bool has_direct_io() const {
-        return true;
-    }
+    bool has_direct_io() const { return false; }
 
     ~impl() {
         if (fp && owns_fp) {
@@ -180,40 +185,73 @@ struct llama_file::impl {
         }
     }
 #else
-    impl(const char * fname, const char * mode, [[maybe_unused]] const bool use_direct_io = false) : fname(fname) {
+    impl(const char * fname, const char * mode, enum llama_file_access access) : fname(fname) {
 #ifdef __linux__
-        // Try unbuffered I/O for read only
-        if (use_direct_io && std::strcmp(mode, "rb") == 0) {
+        if (access != LLAMA_FILE_ACCESS_BUFFERED && std::strcmp(mode, "rb") == 0) {
+            strict_direct = access == LLAMA_FILE_ACCESS_DIRECT_STRICT;
             if (init_fd()) {
                 return;
+            }
+            if (strict_direct) {
+                throw std::runtime_error(
+                    format("failed to open %s with strict direct I/O: %s", fname, strerror(errno)));
             }
             LLAMA_LOG_WARN("Failed to open file '%s' with error: %s. Falling back to buffered I/O",
                            fname, strerror(errno));
         }
-#endif
+#    else
+        if (access == LLAMA_FILE_ACCESS_DIRECT_STRICT) {
+            throw std::runtime_error("strict direct I/O is not supported on this platform");
+        }
+#    endif
         init_fp(mode);
     }
 
-#ifdef __linux__
+#    ifdef __linux__
     bool init_fd() {
-        fd = open(fname.c_str(), O_RDONLY | O_DIRECT);
-
-        if (fd != -1) {
-            struct stat file_stats{};
-            fstat(fd, &file_stats);
-
-            size = file_stats.st_size;
-            alignment = file_stats.st_blksize;
-
-            off_t ret = lseek(fd, 0, SEEK_SET);
-            if (ret == -1) {
-                throw std::runtime_error(format("seek error: %s", strerror(errno)));
-            }
-            return true;
+        fd = open(fname.c_str(), O_RDONLY | O_DIRECT | O_CLOEXEC);
+        if (fd == -1) {
+            return false;
         }
-        return false;
+
+        struct stat file_stats{};
+        if (fstat(fd, &file_stats) != 0) {
+            const int saved_errno = errno;
+            close(fd);
+            fd    = -1;
+            errno = saved_errno;
+            return false;
+        }
+        size             = file_stats.st_size;
+        memory_alignment = file_stats.st_blksize;
+        offset_alignment = file_stats.st_blksize;
+
+        struct statx statx_info{};
+        const bool   has_dio_alignment =
+            syscall(SYS_statx, fd, "", AT_EMPTY_PATH | AT_STATX_DONT_SYNC, STATX_DIOALIGN, &statx_info) == 0 &&
+            (statx_info.stx_mask & STATX_DIOALIGN) != 0;
+        if (has_dio_alignment) {
+            memory_alignment = statx_info.stx_dio_mem_align;
+            offset_alignment = statx_info.stx_dio_offset_align;
+        } else if (strict_direct) {
+            memory_alignment = 0;
+            offset_alignment = 0;
+        }
+        if (memory_alignment == 0 || offset_alignment == 0) {
+            const int saved_errno = EOPNOTSUPP;
+            close(fd);
+            fd    = -1;
+            errno = saved_errno;
+            return false;
+        }
+
+        off_t ret = lseek(fd, 0, SEEK_SET);
+        if (ret == -1) {
+            throw std::runtime_error(format("seek error: %s", strerror(errno)));
+        }
+        return true;
     }
-#endif
+#    endif
 
     void init_fp(const char * mode) {
         fp = ggml_fopen(fname.c_str(), mode);
@@ -288,12 +326,13 @@ struct llama_file::impl {
                         continue;  // Interrupted by signal, retry
                     }
                     // Fallback to std::fread in case the DMA controller cannot access the buffer
-                    if (errno == EFAULT || errno == EINVAL) {
+                    if (!strict_direct && (errno == EFAULT || errno == EINVAL)) {
                         LLAMA_LOG_WARN("%s: Falling back to buffered IO due to %s\n", __func__, strerror(errno));
                         auto curr_off = tell();
                         close(fd);
                         fd = -1;
-                        alignment = 1;
+                        memory_alignment = 1;
+                        offset_alignment = 1;
                         init_fp("rb");
                         seek(curr_off, SEEK_SET);
                         read_raw_unsafe(ptr, len);
@@ -316,14 +355,22 @@ struct llama_file::impl {
         }
     }
 
-    void read_aligned_chunk(void * dest, size_t size) {
-        size_t offset = tell();
-        off_t aligned_offset = offset & ~(alignment - 1);
-        off_t offset_from_alignment = offset - aligned_offset;
-        size_t bytes_to_read = (offset_from_alignment + size + alignment - 1) & ~(alignment - 1);
+    void read_aligned_chunk(void * dest, size_t read_size) {
+        const size_t offset                = tell();
+        const size_t aligned_offset        = offset - offset % offset_alignment;
+        const size_t offset_from_alignment = offset - aligned_offset;
+        if (read_size > std::numeric_limits<size_t>::max() - offset_from_alignment) {
+            throw std::runtime_error("direct read extent overflows size_t");
+        }
+        const size_t logical_size = offset_from_alignment + read_size;
+        const size_t rem          = logical_size % offset_alignment;
+        if (rem != 0 && logical_size > std::numeric_limits<size_t>::max() - (offset_alignment - rem)) {
+            throw std::runtime_error("aligned direct read extent overflows size_t");
+        }
+        const size_t bytes_to_read = rem == 0 ? logical_size : logical_size + offset_alignment - rem;
 
         void * raw_buffer = nullptr;
-        int ret = posix_memalign(&raw_buffer, alignment, bytes_to_read);
+        int    ret        = posix_memalign(&raw_buffer, memory_alignment, bytes_to_read);
         if (ret != 0) {
             throw std::runtime_error(format("posix_memalign failed with error %d", ret));
         }
@@ -337,7 +384,7 @@ struct llama_file::impl {
         read_raw_unsafe(buffer.get(), bytes_to_read);
 
         uintptr_t actual_data = reinterpret_cast<uintptr_t>(buffer.get()) + offset_from_alignment;
-        memcpy(dest, reinterpret_cast<void *>(actual_data), size);
+        memcpy(dest, reinterpret_cast<void *>(actual_data), read_size);
     }
 
     void read_raw(void * ptr, size_t len) {
@@ -369,9 +416,7 @@ struct llama_file::impl {
         write_raw(&val, sizeof(val));
     }
 
-    bool has_direct_io() const {
-        return fd != -1 && alignment > 1;
-    }
+    bool has_direct_io() const { return fd != -1 && memory_alignment > 1 && offset_alignment > 1; }
 
     ~impl() {
         if (fd != -1) {
@@ -382,21 +427,21 @@ struct llama_file::impl {
     }
     int fd = -1;
     std::string fname;
+    bool        strict_direct = false;
 #endif
 
-    size_t read_alignment() const {
-        return alignment;
-    }
+    size_t read_alignment() const { return memory_alignment; }
 
-    size_t alignment = 1;
+    size_t memory_alignment = 1;
+    size_t offset_alignment = 1;
 
     FILE * fp{};
     size_t size{};
     bool owns_fp = true;
 };
 
-llama_file::llama_file(const char * fname, const char * mode, const bool use_direct_io) :
-    pimpl(std::make_unique<impl>(fname, mode, use_direct_io)) {}
+llama_file::llama_file(const char * fname, const char * mode, enum llama_file_access access) :
+    pimpl(std::make_unique<impl>(fname, mode, access)) {}
 
 llama_file::llama_file(FILE * file) : pimpl(std::make_unique<impl>(file)) {}
 
@@ -406,7 +451,16 @@ size_t llama_file::tell() const { return pimpl->tell(); }
 size_t llama_file::size() const { return pimpl->size; }
 
 size_t llama_file::read_alignment() const { return pimpl->read_alignment(); }
-bool llama_file::has_direct_io() const { return pimpl->has_direct_io(); }
+bool llama_file::has_direct_io() const { return pimpl->has_direct_io();
+}
+
+size_t llama_file::direct_memory_alignment() const {
+    return pimpl->memory_alignment;
+}
+
+size_t llama_file::direct_offset_alignment() const {
+    return pimpl->offset_alignment;
+}
 
 int llama_file::file_id() const {
 #ifdef _WIN32
@@ -439,28 +493,41 @@ void llama_file::write_u32(uint32_t val) const { pimpl->write_u32(val); }
 // llama_mmap
 
 struct llama_mmap::impl {
+    bool range_offset(const void * ptr, size_t len, size_t & offset) const {
+        const uintptr_t base = reinterpret_cast<uintptr_t>(addr);
+        const uintptr_t data = reinterpret_cast<uintptr_t>(ptr);
+        if (data < base) {
+            return false;
+        }
+        offset = data - base;
+        return offset <= size && len <= size - offset;
+    }
+
 #ifdef _POSIX_MAPPED_FILES
     std::vector<std::pair<size_t, size_t>> mapped_fragments;
 
-    impl(struct llama_file * file, size_t prefetch, bool numa) {
+    impl(struct llama_file * file, enum llama_mmap_policy policy, bool numa) {
         size = file->size();
         int fd = file->file_id();
         int flags = MAP_SHARED;
-        if (numa) { prefetch = 0; }
-#ifdef __linux__
-        if (posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL)) {
-            LLAMA_LOG_WARN("warning: posix_fadvise(.., POSIX_FADV_SEQUENTIAL) failed: %s\n",
-                    strerror(errno));
+        if (numa) {
+            policy = LLAMA_MMAP_POLICY_DEMAND;
         }
-        if (prefetch) { flags |= MAP_POPULATE; }
+#ifdef __linux__
+        if (policy == LLAMA_MMAP_POLICY_STOCK) {
+            if (posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL)) {
+                LLAMA_LOG_WARN("warning: posix_fadvise(.., POSIX_FADV_SEQUENTIAL) failed: %s\n", strerror(errno));
+            }
+            flags |= MAP_POPULATE;
+        }
 #endif
         addr = mmap(NULL, file->size(), PROT_READ, flags, fd, 0);
         if (addr == MAP_FAILED) {
             throw std::runtime_error(format("mmap failed: %s", strerror(errno)));
         }
 
-        if (prefetch > 0) {
-            if (posix_madvise(addr, std::min(file->size(), prefetch), POSIX_MADV_WILLNEED)) {
+        if (policy == LLAMA_MMAP_POLICY_STOCK) {
+            if (posix_madvise(addr, file->size(), POSIX_MADV_WILLNEED)) {
                 LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_WILLNEED) failed: %s\n",
                         strerror(errno));
             }
@@ -523,6 +590,19 @@ struct llama_mmap::impl {
         mapped_fragments = std::move(new_mapped_fragments);
     }
 
+    bool contains(const void * ptr, size_t len) const {
+        size_t offset;
+        if (!range_offset(ptr, len, offset)) {
+            return false;
+        }
+        for (const auto & frag : mapped_fragments) {
+            if (offset >= frag.first && offset <= frag.second && len <= frag.second - offset) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     ~impl() {
         for (const auto & frag : mapped_fragments) {
             if (munmap((char *) addr + frag.first, frag.second - frag.first)) {
@@ -533,7 +613,7 @@ struct llama_mmap::impl {
 #elif defined(_WIN32)
     HANDLE hMapping = nullptr;
 
-    impl(struct llama_file * file, size_t prefetch, bool numa) {
+    impl(struct llama_file * file, enum llama_mmap_policy policy, bool numa) {
         GGML_UNUSED(numa);
 
         size = file->size();
@@ -555,7 +635,7 @@ struct llama_mmap::impl {
             throw std::runtime_error(format("MapViewOfFile failed: %s", llama_format_win_err(error).c_str()));
         }
 
-        if (prefetch > 0) {
+        if (policy == LLAMA_MMAP_POLICY_STOCK) {
 #if _WIN32_WINNT >= 0x602
             BOOL (WINAPI *pPrefetchVirtualMemory) (HANDLE, ULONG_PTR, PWIN32_MEMORY_RANGE_ENTRY, ULONG);
             HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
@@ -565,7 +645,7 @@ struct llama_mmap::impl {
             if (pPrefetchVirtualMemory) {
                 WIN32_MEMORY_RANGE_ENTRY range;
                 range.VirtualAddress = addr;
-                range.NumberOfBytes = (SIZE_T) std::min(size, prefetch);
+                range.NumberOfBytes  = (SIZE_T) size;
                 if (!pPrefetchVirtualMemory(GetCurrentProcess(), 1, &range, 0)) {
                     LLAMA_LOG_WARN("warning: PrefetchVirtualMemory failed: %s\n",
                             llama_format_win_err(GetLastError()).c_str());
@@ -580,6 +660,11 @@ struct llama_mmap::impl {
     void unmap_fragment(size_t first, size_t last) {
         GGML_UNUSED(first);
         GGML_UNUSED(last);
+    }
+
+    bool contains(const void * ptr, size_t len) const {
+        size_t offset;
+        return range_offset(ptr, len, offset);
     }
 
     ~impl() {
@@ -597,9 +682,9 @@ struct llama_mmap::impl {
         }
     }
 #else
-    impl(struct llama_file * file, size_t prefetch, bool numa) {
+    impl(struct llama_file * file, enum llama_mmap_policy policy, bool numa) {
         GGML_UNUSED(file);
-        GGML_UNUSED(prefetch);
+        GGML_UNUSED(policy);
         GGML_UNUSED(numa);
 
         throw std::runtime_error("mmap not supported");
@@ -611,17 +696,29 @@ struct llama_mmap::impl {
 
         throw std::runtime_error("mmap not supported");
     }
+
+    bool contains(const void * ptr, size_t len) const {
+        GGML_UNUSED(ptr);
+        GGML_UNUSED(len);
+        return false;
+    }
 #endif
 
     void * addr;
     size_t size;
 };
 
-llama_mmap::llama_mmap(struct llama_file * file, size_t prefetch, bool numa) : pimpl(std::make_unique<impl>(file, prefetch, numa)) {}
+llama_mmap::llama_mmap(struct llama_file * file, enum llama_mmap_policy policy, bool numa) :
+    pimpl(std::make_unique<impl>(file, policy, numa)) {}
 llama_mmap::~llama_mmap() = default;
 
 size_t llama_mmap::size() const { return pimpl->size; }
-void * llama_mmap::addr() const { return pimpl->addr; }
+void * llama_mmap::addr() const { return pimpl->addr;
+}
+
+bool llama_mmap::contains(const void * ptr, size_t len) const {
+    return pimpl->contains(ptr, len);
+}
 
 void llama_mmap::unmap_fragment(size_t first, size_t last) { pimpl->unmap_fragment(first, last); }
 

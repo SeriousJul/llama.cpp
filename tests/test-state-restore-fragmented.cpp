@@ -50,6 +50,7 @@ int main(int argc, char ** argv) {
     // interleave the 3 sequences:
     // 01201230123...
     llama_batch batch = llama_batch_init(params.n_parallel*tokens.size(), 0, 1);
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
     for (size_t i = 0; i < tokens.size(); i++) {
         for (int s = 0; s < params.n_parallel; ++s) {
             common_batch_add(batch, tokens[i], i, {s}, false);
@@ -106,6 +107,7 @@ int main(int argc, char ** argv) {
     auto next_token_str = common_token_to_piece(ctx, next_token);
 
     common_batch_clear(batch);
+    batch.phase = LLAMA_BATCH_PHASE_GENERATION;
     common_batch_add(batch, next_token, (int)tokens.size(), {1}, true);
 
     if (llama_decode(ctx, batch)) {

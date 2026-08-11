@@ -827,6 +827,7 @@ static bool compute_imatrix(llama_context * ctx, const common_params & params, c
     GGML_ASSERT(params.n_ctx == n_seq * n_ctx);
 
     llama_batch batch = llama_batch_init(std::min(n_batch, n_ctx*n_seq), 0, 1);
+    batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
 
     std::vector<float> logits;
     if (params.compute_ppl && num_batches > 1) {

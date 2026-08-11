@@ -14,6 +14,9 @@
 #include <future>
 #include <regex>
 
+#if defined(__linux__)
+#    include <sys/stat.h>
+#endif
 static const size_t kiB = 1024;
 static const size_t MiB = 1024*kiB;
 static const size_t GiB = 1024*MiB;
@@ -563,7 +566,9 @@ llama_model_loader::llama_model_loader(
         get_key(llm_kv(LLM_KV_GENERAL_ARCHITECTURE), arch_name, false);
         llm_kv = LLM_KV(llm_arch_from_string(arch_name));
 
-        files.emplace_back(new llama_file(fname.c_str(), "rb", use_direct_io));
+        files.emplace_back(new llama_file(
+            fname.c_str(), "rb", use_direct_io ? LLAMA_FILE_ACCESS_DIRECT_PREFERRED : LLAMA_FILE_ACCESS_BUFFERED));
+        file_paths.emplace_back(fname);
         contexts.emplace_back(ctx);
 
         // Save tensors data offset of the main file.
@@ -631,7 +636,10 @@ llama_model_loader::llama_model_loader(
                     }
                 }
 
-                files.emplace_back(new llama_file(fname_split, "rb", use_direct_io));
+                files.emplace_back(
+                    new llama_file(fname_split, "rb",
+                                   use_direct_io ? LLAMA_FILE_ACCESS_DIRECT_PREFERRED : LLAMA_FILE_ACCESS_BUFFERED));
+                file_paths.emplace_back(fname_split);
                 contexts.emplace_back(ctx);
 
                 // Save tensors data offset info of the shard.
@@ -676,6 +684,7 @@ llama_model_loader::llama_model_loader(
         llm_kv = LLM_KV(llm_arch_from_string(arch_name));
 
         files.emplace_back(new llama_file(file));
+        file_paths.emplace_back();
         contexts.emplace_back(ctx);
 
         // Save tensors data offset info of the main file.
@@ -831,6 +840,127 @@ const llama_model_loader::llama_tensor_weight * llama_model_loader::get_weight(c
     }
 
     return nullptr;
+}
+
+bool llama_model_loader::init_moe_cache_sources(std::string & error) {
+#if !defined(__linux__)
+    error = "direct expert sources require Linux";
+    return false;
+#else
+    moe_cache_files.clear();
+    moe_cache_file_infos.clear();
+    if (file_paths.size() != files.size()) {
+        error = "model source path inventory is incomplete";
+        return false;
+    }
+
+    moe_cache_files.reserve(files.size());
+    moe_cache_file_infos.reserve(files.size());
+    for (size_t index = 0; index < files.size(); ++index) {
+        if (file_paths[index].empty()) {
+            error = "pathless model sources do not support direct expert reads";
+            moe_cache_files.clear();
+            moe_cache_file_infos.clear();
+            return false;
+        }
+
+        std::unique_ptr<llama_file> direct;
+        try {
+            direct = std::make_unique<llama_file>(file_paths[index].c_str(), "rb", LLAMA_FILE_ACCESS_DIRECT_STRICT);
+        } catch (const std::exception & exception) {
+            error = exception.what();
+            moe_cache_files.clear();
+            moe_cache_file_infos.clear();
+            return false;
+        }
+
+        struct stat mapped_stat{};
+        struct stat direct_stat{};
+        if (fstat(files[index]->file_id(), &mapped_stat) != 0 || fstat(direct->file_id(), &direct_stat) != 0 ||
+            mapped_stat.st_dev != direct_stat.st_dev || mapped_stat.st_ino != direct_stat.st_ino ||
+            mapped_stat.st_size != direct_stat.st_size) {
+            error = "a direct descriptor does not match its mapped model shard";
+            moe_cache_files.clear();
+            moe_cache_file_infos.clear();
+            return false;
+        }
+
+        moe_cache_file_infos.push_back({
+            static_cast<uint64_t>(direct_stat.st_dev),
+            static_cast<uint64_t>(direct_stat.st_ino),
+            static_cast<uint64_t>(direct_stat.st_size),
+            direct->direct_memory_alignment(),
+            direct->direct_offset_alignment(),
+        });
+        moe_cache_files.emplace_back(std::move(direct));
+    }
+    return true;
+#endif
+}
+
+bool llama_model_loader::get_tensor_source(const struct ggml_tensor * tensor,
+                                           uint32_t                   source_id,
+                                           llama_tensor_source &      source) const {
+    if (tensor == nullptr) {
+        return false;
+    }
+    const llama_tensor_weight * weight = get_weight(tensor->name);
+    if (weight == nullptr || weight->idx >= moe_cache_files.size() || weight->idx >= moe_cache_file_infos.size()) {
+        return false;
+    }
+    const moe_cache_file_info & file_info    = moe_cache_file_infos[weight->idx];
+    const size_t                tensor_bytes = ggml_nbytes(tensor);
+    if (weight->offs > file_info.size || tensor_bytes > file_info.size - weight->offs) {
+        return false;
+    }
+    source = {
+        /* .tensor           = */ tensor,
+        /* .name             = */ tensor->name,
+        /* .source_id        = */ source_id,
+        /* .shard_index      = */ weight->idx,
+        /* .tensor_offset    = */ weight->offs,
+        /* .tensor_length    = */ tensor_bytes,
+        /* .shard_length     = */ file_info.size,
+        /* .source_device    = */ file_info.device,
+        /* .source_inode     = */ file_info.inode,
+        /* .memory_alignment = */ file_info.memory_alignment,
+        /* .offset_alignment = */ file_info.offset_alignment,
+        /* .type             = */ tensor->type,
+    };
+    return true;
+}
+
+bool llama_model_loader::get_moe_cache_source(const struct ggml_tensor *     tensor,
+                                              int64_t                        n_expert,
+                                              uint32_t                       source_id,
+                                              struct ggml_moe_cache_source & source) const {
+    if (tensor == nullptr || n_expert <= 0 || ggml_n_dims(tensor) < 3 || tensor->ne[2] != n_expert ||
+        !ggml_is_contiguous(tensor)) {
+        return false;
+    }
+    llama_tensor_source tensor_source{};
+    if (!get_tensor_source(tensor, source_id, tensor_source)) {
+        return false;
+    }
+    source = {
+        /* .tensor           = */ tensor_source.tensor,
+        /* .tensor_name      = */ tensor->name,
+        /* .fd               = */ moe_cache_files[tensor_source.shard_index]->file_id(),
+        /* .source_id        = */ tensor_source.source_id,
+        /* .shard_index      = */ tensor_source.shard_index,
+        /* .tensor_offset    = */ tensor_source.tensor_offset,
+        /* .tensor_length    = */ tensor_source.tensor_length,
+        /* .shard_length     = */ tensor_source.shard_length,
+        /* .source_device    = */ tensor_source.source_device,
+        /* .source_inode     = */ tensor_source.source_inode,
+        /* .memory_alignment = */ tensor_source.memory_alignment,
+        /* .offset_alignment = */ tensor_source.offset_alignment,
+        /* .type             = */ tensor_source.type,
+        /* .n_expert         = */ n_expert,
+        /* .expert_size      = */ tensor->nb[2],
+        /* .tensor_bytes     = */ tensor_source.tensor_length,
+    };
+    return true;
 }
 
 const llama_model_loader::llama_tensor_weight & llama_model_loader::require_weight(const char * name) const {
@@ -1337,7 +1467,7 @@ void llama_model_loader::done_getting_tensors(bool partial) const {
     }
 }
 
-void llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps) {
+void llama_model_loader::init_mappings(enum llama_mmap_policy policy, llama_mlocks * mlock_mmaps) {
     if (use_mmap) {
         mappings.reserve(files.size());
         mmaps_used.reserve(files.size());
@@ -1353,7 +1483,7 @@ void llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps
                 }
             }
 
-            std::unique_ptr<llama_mmap> mapping = std::make_unique<llama_mmap>(file.get(), prefetch ? -1 : 0, is_numa);
+            std::unique_ptr<llama_mmap> mapping = std::make_unique<llama_mmap>(file.get(), policy, is_numa);
             mmaps_used.emplace_back(mapping->size(), 0);
             if (mlock_mmaps) {
                 std::unique_ptr<llama_mlock> mlock_mmap(new llama_mlock());

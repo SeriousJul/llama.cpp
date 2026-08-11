@@ -106,6 +106,7 @@ int main(int argc, char ** argv) {
                         return;
                     }
                     batch = llama_batch_get_one(prompt.data(), prompt.size());
+                    batch.phase = LLAMA_BATCH_PHASE_PROMPT;
                     if (llama_decode(ctx.get(), batch)) {
                         LOG_ERR("failed to decode prompt\n");
                         failed.store(true);
@@ -131,6 +132,7 @@ int main(int argc, char ** argv) {
                     }
 
                     batch = llama_batch_get_one(&token, 1);
+                    batch.phase = LLAMA_BATCH_PHASE_GENERATION;
 
                     int ret = llama_decode(ctx.get(), batch);
                     if (ret == 1 && i > 0) {

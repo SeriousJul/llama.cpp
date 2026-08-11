@@ -554,6 +554,7 @@ int llama_completion(int argc, char ** argv) {
     display = params.display_prompt;
 
     std::vector<llama_token> embd;
+    bool                     embd_is_generation = false;
 
     // single-token antiprompts
     std::vector<llama_token> antiprompt_token;
@@ -569,7 +570,9 @@ int llama_completion(int argc, char ** argv) {
         int enc_input_size = embd_inp.size();
         llama_token * enc_input_buf = embd_inp.data();
 
-        if (llama_encode(ctx, llama_batch_get_one(enc_input_buf, enc_input_size))) {
+        llama_batch encoder_batch = llama_batch_get_one(enc_input_buf, enc_input_size);
+        encoder_batch.phase       = LLAMA_BATCH_PHASE_PROMPT;
+        if (llama_encode(ctx, encoder_batch)) {
             LOG_ERR("%s : failed to eval\n", __func__);
             return 1;
         }
@@ -685,7 +688,9 @@ int llama_completion(int argc, char ** argv) {
                 const bool is_last_batch = (n_consumed >= (int) embd_inp.size());
                 const bool save_now = session_do_save && is_last_batch;
                 session_tokens.insert(session_tokens.end(), embd.begin(), embd.end());
-                if (!common_prompt_batch_decode(ctx, session_tokens, embd.size(), n_past, params.n_batch, path_session, save_now)) {
+                if (!common_prompt_batch_decode(
+                        ctx, session_tokens, embd.size(), n_past, params.n_batch, path_session, save_now,
+                        embd_is_generation ? LLAMA_BATCH_PHASE_GENERATION : LLAMA_BATCH_PHASE_PROMPT)) {
                     return 1;
                 }
                 n_session_consumed += embd.size();
@@ -713,6 +718,7 @@ int llama_completion(int argc, char ** argv) {
             // LOG_DBG("last: %s\n", string_from(ctx, smpl->prev.to_vector()).c_str());
 
             embd.push_back(id);
+            embd_is_generation = true;
 
             if (params.conversation_mode && !waiting_for_first_input && !llama_vocab_is_eog(vocab, id)) {
                 assistant_ss << common_token_to_piece(ctx, id, false);
@@ -727,6 +733,7 @@ int llama_completion(int argc, char ** argv) {
             LOG_DBG("n_remain: %d\n", n_remain);
         } else {
             // some user input remains from prompt or interaction, forward it to processing
+            embd_is_generation = false;
             LOG_DBG("embd_inp.size(): %d, n_consumed: %d\n", (int) embd_inp.size(), n_consumed);
             while ((int) embd_inp.size() > n_consumed) {
                 embd.push_back(embd_inp[n_consumed]);

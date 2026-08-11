@@ -93,6 +93,8 @@ llama_context::llama_context(
 
     t_start_us = model.t_start_us;
     t_load_us  = model.t_load_us;
+    moe_cache_enabled =
+        model.moe_cache_mode() != LLAMA_MOE_CACHE_MODE_OFF && !model.hparams.no_alloc && params.op_offload;
 
     const auto & hparams = model.hparams;
 
@@ -498,6 +500,7 @@ llama_context::~llama_context() {
             }
         }
     }
+    sched.reset();
     ggml_opt_free(opt_ctx);
 }
 
@@ -578,6 +581,76 @@ void llama_context::resolve_fused_ops(const llama_memory_context_i * mctx, uint3
     }
 }
 
+void llama_context::sched_moe_cache_configure() {
+    ggml_moe_cache_config config{};
+    if (!moe_cache_enabled) {
+        config.mode = GGML_MOE_CACHE_MODE_OFF;
+        GGML_ASSERT(ggml_backend_sched_moe_cache_configure(sched.get(), &config, nullptr, 0));
+        return;
+    }
+
+    switch (model.moe_cache_mode()) {
+        case LLAMA_MOE_CACHE_MODE_OFF:
+            config.mode = GGML_MOE_CACHE_MODE_OFF;
+            break;
+        case LLAMA_MOE_CACHE_MODE_AUTO:
+            config.mode = GGML_MOE_CACHE_MODE_AUTO;
+            break;
+        case LLAMA_MOE_CACHE_MODE_GENERATION:
+            config.mode = GGML_MOE_CACHE_MODE_GENERATION;
+            break;
+    }
+    config.strict = model.moe_cache_mode() == LLAMA_MOE_CACHE_MODE_GENERATION;
+
+    constexpr size_t mib      = 1024ULL * 1024ULL;
+    auto             to_bytes = [&](size_t value, size_t & result) {
+        if (value > std::numeric_limits<size_t>::max() / mib) {
+            return false;
+        }
+        result = value * mib;
+        return true;
+    };
+    const llama_moe_weight_inventory inventory = llama_model_moe_weight_inventory(&model);
+    config.largest_expert_extent               = inventory.largest_expert_bytes;
+    const bool   valid_sizes = to_bytes(model.moe_cache_vram_mib(), config.l1_bytes_per_device) &&
+                               to_bytes(model.moe_cache_ram_mib(), config.l2_bytes) &&
+                               to_bytes(model.moe_cache_host_reserve_mib(), config.host_reserve_bytes);
+    const auto & sources     = model.moe_cache_sources();
+    const bool   configured =
+        valid_sizes && ggml_backend_sched_moe_cache_configure(sched.get(), &config, sources.data(), sources.size());
+    if (configured) {
+        return;
+    }
+
+    const std::string reason =
+        valid_sizes ? ggml_backend_sched_moe_cache_get_error(sched.get()) : "a cache size overflows size_t";
+    if (config.strict) {
+        throw std::runtime_error("strict MoE cache configuration failed: " + reason);
+    }
+    LLAMA_LOG_WARN("%s: disabling MoE cache: %s\n", __func__, reason.c_str());
+    moe_cache_enabled = false;
+    config            = {};
+    config.mode       = GGML_MOE_CACHE_MODE_OFF;
+    GGML_ASSERT(ggml_backend_sched_moe_cache_configure(sched.get(), &config, nullptr, 0));
+}
+
+bool llama_context::sched_moe_cache_activate() {
+    if (!moe_cache_enabled) {
+        return true;
+    }
+    if (ggml_backend_sched_moe_cache_activate(sched.get())) {
+        return true;
+    }
+
+    const std::string reason = ggml_backend_sched_moe_cache_get_error(sched.get());
+    if (model.moe_cache_mode() == LLAMA_MOE_CACHE_MODE_GENERATION) {
+        throw std::runtime_error("strict MoE cache activation failed: " + reason);
+    }
+    LLAMA_LOG_WARN("%s: disabling MoE cache: %s\n", __func__, reason.c_str());
+    moe_cache_enabled = false;
+    return false;
+}
+
 void llama_context::sched_reserve() {
     if (!sched_need_reserve) {
         return;
@@ -602,6 +675,7 @@ void llama_context::sched_reserve() {
     gf_res_reserve.reset(new llm_graph_result(max_nodes));
 
     sched.reset(ggml_backend_sched_new(backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), max_nodes, cparams.pipeline_parallel, cparams.op_offload));
+    sched_moe_cache_configure();
 
     llama_memory_context_ptr mctx;
     if (memory) {
@@ -630,14 +704,17 @@ void llama_context::sched_reserve() {
 
     // reserve pp (prompt processing) graph first so that buffers are only allocated once
     {
-        auto * gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(),
-                model.hparams.no_alloc, model.hparams.no_alloc ? backend_buf_exp_size.data() : nullptr);
+        auto * gf =
+            graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(), model.hparams.no_alloc,
+                          model.hparams.no_alloc ? backend_buf_exp_size.data() : nullptr, LLAMA_BATCH_PHASE_PROMPT);
         if (!gf) {
             if (cparams.pipeline_parallel) {
                 LLAMA_LOG_WARN("%s: compute buffer allocation failed, retrying without pipeline parallelism\n", __func__);
                 cparams.pipeline_parallel = false;
                 sched.reset(ggml_backend_sched_new(backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), max_nodes, false, cparams.op_offload));
-                gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get());
+                sched_moe_cache_configure();
+                gf =
+                    graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(), false, nullptr, LLAMA_BATCH_PHASE_PROMPT);
             }
             if (!gf) {
                 throw std::runtime_error("failed to allocate compute pp buffers");
@@ -650,7 +727,8 @@ void llama_context::sched_reserve() {
 
     // reserve with tg (token generation) graph to get the number of splits and nodes
     {
-        auto * gf = graph_reserve(n_seqs, n_seqs, n_seqs, mctx.get(), model.hparams.no_alloc);
+        auto * gf = graph_reserve(n_seqs, n_seqs, n_seqs, mctx.get(), model.hparams.no_alloc, nullptr,
+                                  LLAMA_BATCH_PHASE_GENERATION);
         if (!gf) {
             throw std::runtime_error("failed to allocate compute tg buffers");
         }
@@ -659,16 +737,30 @@ void llama_context::sched_reserve() {
         n_nodes_tg  = ggml_graph_n_nodes(gf);
     }
 
+    if (moe_cache_enabled) {
+        auto * gf = graph_reserve(8, 1, 1, mctx.get(), model.hparams.no_alloc, nullptr, LLAMA_BATCH_PHASE_GENERATION);
+        if (!gf) {
+            throw std::runtime_error("failed to allocate MoE cache generation buffers");
+        }
+    }
+
     // reserve again with pp graph to avoid ggml-alloc reallocations during inference
     {
         // TODO: not sure if the following graph would be worst case for multi-stream KV caches:
         //
         // auto * gf = graph_reserve(n_tokens, 1, n_tokens, mctx.get());
         //
-        auto * gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(), model.hparams.no_alloc);
+        auto * gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get(), model.hparams.no_alloc, nullptr,
+                                  LLAMA_BATCH_PHASE_PROMPT);
         if (!gf) {
             throw std::runtime_error("failed to allocate compute pp buffers");
         }
+    }
+
+    if (!sched_moe_cache_activate()) {
+        sched_need_reserve = true;
+        sched_reserve();
+        return;
     }
 
     for (size_t i = 0; i < backend_ptrs.size(); ++i) {
@@ -1336,6 +1428,11 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
     // in order to correctly reuse a graph, it's full topology has to be uniquely determined by these parameters
     const auto gparams = graph_params(res, ubatch, mctx, gtype);
 
+    const bool moe_cache_eligible =
+        (ubatch.phase == LLAMA_BATCH_PHASE_GENERATION || ubatch.phase == LLAMA_BATCH_PHASE_VERIFICATION) &&
+        ubatch.n_tokens <= 8;
+    ggml_backend_sched_moe_cache_set_eligible(sched.get(), moe_cache_eligible);
+
     if (!graph_reuse_disable && res->can_reuse(gparams)) {
         //LLAMA_LOG_DEBUG("%s: reusing previous graph\n", __func__);
 
@@ -1385,6 +1482,14 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
     const auto status = graph_compute(res->get_gf(), ubatch.n_tokens > 1);
     if (status != GGML_STATUS_SUCCESS) {
         LLAMA_LOG_ERROR("%s: failed to compute graph, compute status: %d\n", __func__, status);
+        if (ggml_backend_sched_moe_cache_consume_placement_invalidated(sched.get())) {
+            sched_need_reserve = true;
+            if (model.moe_cache_mode() != LLAMA_MOE_CACHE_MODE_GENERATION) {
+                LLAMA_LOG_WARN("%s: disabling MoE cache after runtime failure: %s\n", __func__,
+                               ggml_backend_sched_moe_cache_get_error(sched.get()));
+                moe_cache_enabled = false;
+            }
+        }
         ret = status;
         return nullptr;
     }
@@ -2391,8 +2496,13 @@ static void ubatch_prepare_reserve(
     }
 }
 
-ggml_cgraph * llama_context::graph_reserve(
-        uint32_t n_tokens, uint32_t n_seqs, uint32_t n_outputs, const llama_memory_context_i * mctx, bool split_only, size_t * sizes) {
+ggml_cgraph * llama_context::graph_reserve(uint32_t                       n_tokens,
+                                           uint32_t                       n_seqs,
+                                           uint32_t                       n_outputs,
+                                           const llama_memory_context_i * mctx,
+                                           bool                           split_only,
+                                           size_t *                       sizes,
+                                           enum llama_batch_phase         phase) {
     LLAMA_LOG_DEBUG("%s: reserving a graph for ubatch with n_tokens = %4u, n_seqs = %2u, n_outputs = %4u\n", __func__, n_tokens, n_seqs, n_outputs);
     GGML_ASSERT(n_outputs >= 1);
 
@@ -2401,6 +2511,9 @@ ggml_cgraph * llama_context::graph_reserve(
         LLAMA_LOG_DEBUG("%s: making n_tokens a multiple of n_seqs - n_tokens = %u, n_seqs = %u, n_outputs = %u\n", __func__, n_tokens, n_seqs, n_outputs);
     }
 
+    const bool moe_cache_eligible =
+        (phase == LLAMA_BATCH_PHASE_GENERATION || phase == LLAMA_BATCH_PHASE_VERIFICATION) && n_tokens <= 8;
+    ggml_backend_sched_moe_cache_set_eligible(sched.get(), moe_cache_eligible);
     ggml_backend_sched_reset(sched.get());
 
     // when the scheduler is reset, we cannot reuse the old graph, so we reset the previous graph result to prevent that
@@ -2414,6 +2527,7 @@ ggml_cgraph * llama_context::graph_reserve(
 
     llama_batch_allocr balloc(model.hparams.n_pos_per_embd());
     llama_ubatch ubatch = balloc.ubatch_reserve(n_tokens/n_seqs, n_seqs);
+    ubatch.phase              = phase;
 
     ubatch_prepare_reserve(ubatch, n_outputs, sampling.samplers, cparams.n_outputs_max_per_seq);
 
@@ -3236,6 +3350,18 @@ llama_perf_context_data llama_context::perf_get_data() const {
     data.n_eval      = std::max(1, n_eval);
     data.n_reused    = std::max(0, n_reused);
 
+    const ggml_moe_cache_stats cache = ggml_backend_sched_moe_cache_get_stats(sched.get());
+    data.moe_cache_l1_bytes          = cache.l1_capacity;
+    data.moe_cache_l2_bytes          = cache.l2_capacity;
+    data.moe_cache_l1_hits           = cache.l1_hits;
+    data.moe_cache_l2_hits           = cache.l2_hits;
+    data.moe_cache_l3_read_count     = cache.l3_read_count;
+    data.moe_cache_l3_logical_bytes  = cache.l3_logical_bytes;
+    data.moe_cache_l3_physical_bytes = cache.l3_physical_bytes;
+    data.moe_cache_l1_evictions      = cache.l1_evictions;
+    data.moe_cache_l2_evictions      = cache.l2_evictions;
+    data.moe_cache_l3_wait_us        = cache.l3_wait_us;
+
     return data;
 }
 
@@ -3244,6 +3370,7 @@ void llama_context::perf_reset() {
     t_eval_us   = n_eval = 0;
     t_p_eval_us = n_p_eval = 0;
     n_reused    = 0;
+    ggml_backend_sched_moe_cache_reset_stats(sched.get());
 }
 
 llama_memory_breakdown llama_context::memory_breakdown() const {
@@ -4153,6 +4280,15 @@ void llama_perf_context_print(const llama_context * ctx) {
             __func__, data.t_eval_ms, data.n_eval, data.t_eval_ms / data.n_eval, 1e3 / data.t_eval_ms * data.n_eval);
     LLAMA_LOG_INFO("%s:       total time = %10.2f ms / %5d tokens\n", __func__, (t_end_ms - data.t_start_ms), (data.n_p_eval + data.n_eval));
     LLAMA_LOG_INFO("%s:    graphs reused = %10d\n", __func__, data.n_reused);
+    if (data.moe_cache_l1_bytes != 0 || data.moe_cache_l2_bytes != 0) {
+        LLAMA_LOG_INFO(
+            "%s:        MoE cache = L1 %.2f MiB, L2 %.2f MiB, hits L1/L2 %" PRIu64 "/%" PRIu64 ", L3 reads %" PRIu64
+            ", L3 %.2f/%.2f MiB logical/physical, evictions L1/L2 %" PRIu64 "/%" PRIu64 ", wait %.2f ms\n",
+            __func__, data.moe_cache_l1_bytes / 1024.0 / 1024.0, data.moe_cache_l2_bytes / 1024.0 / 1024.0,
+            data.moe_cache_l1_hits, data.moe_cache_l2_hits, data.moe_cache_l3_read_count,
+            data.moe_cache_l3_logical_bytes / 1024.0 / 1024.0, data.moe_cache_l3_physical_bytes / 1024.0 / 1024.0,
+            data.moe_cache_l1_evictions, data.moe_cache_l2_evictions, data.moe_cache_l3_wait_us / 1000.0);
+    }
 }
 
 void llama_perf_context_reset(llama_context * ctx) {
