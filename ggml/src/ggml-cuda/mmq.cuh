@@ -1603,3 +1603,7 @@ void ggml_cuda_mul_mat_q(
         ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
 
 bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t n_experts);
+
+// true when src1 is a two-tensor swiglu whose gate and up outputs the MMQ activation
+// quantization can read directly, making the GLU node's f32 output dead
+bool ggml_cuda_glu_is_fusable(const ggml_tensor * src1);

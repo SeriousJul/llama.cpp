@@ -3442,6 +3442,38 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph 
 
     ggml_tensor * node = cgraph->nodes[i];
 
+    // swiglu feeding a quantized down projection: run that projection here, folded into its
+    // activation quantization, and drop the GLU node so its f32 output is never written nor read
+    if (node->op == GGML_OP_GLU && i + 1 < cgraph->n_nodes) {
+        ggml_tensor * down = cgraph->nodes[i + 1];
+
+        if (down->op == GGML_OP_MUL_MAT && down->src[1] == node && !down->src[2] &&
+                ggml_cuda_glu_is_fusable(node)) {
+            const int     cc = ggml_cuda_info().devices[cuda_ctx->device].cc;
+            const int64_t nc = node->ne[1];
+
+            // has to match the dispatch in ggml_cuda_mul_mat exactly, the GLU output would
+            // otherwise still be needed by whichever other path ran
+            const bool takes_mmq = ggml_cuda_should_use_mmq(down->src[0]->type, cc, nc, /*n_experts=*/0) &&
+                                   !ggml_cuda_should_use_mmvq(down->src[0]->type, cc, nc);
+
+            bool only_consumer = true;
+            for (int j = i + 2; takes_mmq && j < cgraph->n_nodes; j++) {
+                for (int s = 0; s < GGML_MAX_SRC; s++) {
+                    if (cgraph->nodes[j]->src[s] == node) {
+                        only_consumer = false;
+                        break;
+                    }
+                }
+            }
+
+            if (takes_mmq && only_consumer) {
+                GGML_ASSERT(ggml_cuda_compute_forward(*cuda_ctx, down));
+                return 1;
+            }
+        }
+    }
+
     if (node->op == GGML_OP_MUL) {
         ggml_cuda_moe_weighted_reduction_match match;
         if (ggml_cuda_match_moe_weighted_reduction(cgraph, i, match)) {
