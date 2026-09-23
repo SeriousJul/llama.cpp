@@ -4,6 +4,7 @@ export const API_MODELS = {
 	DOWNLOAD: '/models',
 	LIST: '/v1/models',
 	LOAD: '/models/load',
+	RELOAD: '/models/reload',
 	SSE: '/models/sse',
 	UNLOAD: '/models/unload'
 };

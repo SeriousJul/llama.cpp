@@ -71,6 +71,8 @@ export interface ApiModelStatus {
 	value: ServerModelStatus;
 	/** Command line arguments used when loading (only for loaded models) */
 	args?: string[];
+	/** Preset INI section as a string (e.g. "[name]\nn_ctx = 8192\n") — only present for router mode */
+	preset?: string;
 }
 
 /**
@@ -492,11 +494,42 @@ export interface ApiModelsListResponse {
 }
 
 /**
+ * Server metadata for one option accepted in a model preset INI section.
+ */
+export interface ApiPresetOption {
+	key: string;
+	args: string[];
+	value_hint: string;
+	description: string;
+	type: 'string' | 'number' | 'boolean';
+	sampling: boolean;
+	speculative: boolean;
+}
+
+/**
+ * Response with list of all models from /models endpoint (ROUTER mode),
+ * extended with the preset catalog when requested via `?presets=1`.
+ */
+export interface ApiRouterModelsListResponse {
+	object: string;
+	data: ApiModelDataEntry[];
+	preset_sections?: string[];
+	preset_options?: ApiPresetOption[];
+}
+
+/**
  * Response from POST /models/unload
  */
 export interface ApiModelsUnloadResponse {
 	success: boolean;
 	error?: string;
+}
+
+/**
+ * Response from reloading model presets from the router's configured INI file
+ */
+export interface ApiRouterModelsReloadResponse {
+	success: boolean;
 }
 
 /**

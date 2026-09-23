@@ -109,6 +109,20 @@ export class ModelsService {
 	}
 
 	/**
+	 * Fetch list of all models with detailed metadata (ROUTER mode).
+	 * Returns models with load status, paths, and other metadata
+	 * beyond what the OpenAI-compatible endpoint provides.
+	 *
+	 * @param includePresets Include raw preset sections and the server-derived option catalog
+	 * @returns List of models with detailed status and configuration info
+	 */
+	static async listRouter(includePresets = false): Promise<ApiRouterModelsListResponse> {
+		const endpoint = includePresets ? `${API_MODELS.LIST}?presets=1` : API_MODELS.LIST;
+
+		return apiFetch<ApiRouterModelsListResponse>(endpoint);
+	}
+
+	/**
 	 * Load a model (ROUTER mode only).
 	 * Sends POST request to `/models/load`. Note: the endpoint returns success
 	 * before loading completes — use polling to await actual load status.
@@ -282,6 +296,13 @@ export class ModelsService {
 		}
 
 		return result;
+	}
+
+	/**
+	 * Reload model presets from the router's configured INI file.
+	 */
+	static async reload(): Promise<ApiRouterModelsReloadResponse> {
+		return apiPost<ApiRouterModelsReloadResponse>(API_MODELS.RELOAD, {});
 	}
 
 	/**

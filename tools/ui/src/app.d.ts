@@ -28,6 +28,8 @@ import type {
 	ApiModelsSseProgress,
 	ApiModelsUnloadResponse,
 	ApiProcessingState,
+	ApiRouterModelsListResponse,
+	ApiRouterModelsReloadResponse,
 	ChatAttachmentDisplayItem,
 	// Chat types
 	ChatMessagePromptProgress,
@@ -93,6 +95,8 @@ declare global {
 		ApiModelsDownloadResponse,
 		ApiModelsUnloadResponse,
 		ApiProcessingState,
+		ApiRouterModelsListResponse,
+		ApiRouterModelsReloadResponse,
 		// Chat types
 		ChatAttachmentDisplayItem,
 		ChatMessagePromptProgress,
