@@ -6,14 +6,16 @@
 		SettingsChatImportExportTab,
 		SettingsChatMobileHeader,
 		SettingsChatToolsTab,
-		SettingsFooter
+		SettingsFooter,
+		SettingsPresets
 	} from '$lib/components/app/settings';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		NUMERIC_FIELDS,
 		POSITIVE_INTEGER_FIELDS,
 		SETTINGS_CHAT_SECTIONS,
-		SETTINGS_SECTION_SLUGS
+		SETTINGS_SECTION_SLUGS,
+		SETTINGS_SECTION_TITLES
 	} from '$lib/constants';
 	import { ColorMode } from '$lib/enums/ui.enums';
 	import { modelsStore, serverStore, settingsStore } from '$lib/stores';
@@ -151,6 +153,8 @@
 						<SettingsChatToolsTab />
 					{:else if currentSection.slug === SETTINGS_SECTION_SLUGS.IMPORT_EXPORT}
 						<SettingsChatImportExportTab />
+					{:else if currentSection.title === SETTINGS_SECTION_TITLES.PRESETS}
+						<SettingsPresets />
 					{:else if currentSection.fields}
 						<div class="space-y-6">
 							<SettingsChatFields
@@ -172,12 +176,18 @@
 					{/if}
 				</div>
 
-				<div class="mt-8 border-t border-border/30 pt-6">
-					<p class="text-xs text-muted-foreground">Settings are saved in browser's localStorage</p>
-				</div>
+				{#if currentSection.title !== SETTINGS_SECTION_TITLES.PRESETS}
+					<div class="mt-8 border-t border-border/30 pt-6">
+						<p class="text-xs text-muted-foreground">
+							Settings are saved in browser's localStorage
+						</p>
+					</div>
+				{/if}
 			</div>
 
-			<SettingsFooter onReset={handleReset} onSave={handleSave} />
+			{#if currentSection.title !== SETTINGS_SECTION_TITLES.PRESETS}
+				<SettingsFooter onReset={handleReset} onSave={handleSave} />
+			{/if}
 		</div>
 	</div>
 </div>

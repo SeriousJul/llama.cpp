@@ -11,6 +11,7 @@ import {
 	Monitor,
 	Moon,
 	PencilRuler,
+	Sliders,
 	SlidersVertical,
 	Sun
 } from '@lucide/svelte';
@@ -32,6 +33,7 @@ export const SETTINGS_SECTIONS = {
 	DISPLAY: { slug: 'display', title: 'Display' },
 	GENERAL: { slug: 'general', title: 'General' },
 	IMPORT_EXPORT: { slug: 'import-export', title: 'Import/Export' },
+	PRESETS: { slug: 'presets', title: 'Presets' },
 	SAMPLING_PENALTIES: { slug: 'sampling-penalties', title: 'Sampling & Penalties' },
 	TOOLS: { slug: 'tools', title: 'Tools' }
 } as const;
@@ -42,6 +44,7 @@ export const SETTINGS_SECTION_SLUGS = {
 	DISPLAY: SETTINGS_SECTIONS.DISPLAY.slug,
 	GENERAL: SETTINGS_SECTIONS.GENERAL.slug,
 	IMPORT_EXPORT: SETTINGS_SECTIONS.IMPORT_EXPORT.slug,
+	PRESETS: SETTINGS_SECTIONS.PRESETS.slug,
 	SAMPLING_PENALTIES: SETTINGS_SECTIONS.SAMPLING_PENALTIES.slug,
 	TOOLS: SETTINGS_SECTIONS.TOOLS.slug
 } as const;
@@ -52,6 +55,7 @@ export const SETTINGS_SECTION_TITLES = {
 	DISPLAY: SETTINGS_SECTIONS.DISPLAY.title,
 	GENERAL: SETTINGS_SECTIONS.GENERAL.title,
 	IMPORT_EXPORT: SETTINGS_SECTIONS.IMPORT_EXPORT.title,
+	PRESETS: SETTINGS_SECTIONS.PRESETS.title,
 	SAMPLING_PENALTIES: SETTINGS_SECTIONS.SAMPLING_PENALTIES.title,
 	TOOLS: SETTINGS_SECTIONS.TOOLS.title
 } as const;
@@ -635,6 +639,13 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 		],
 		slug: SETTINGS_SECTION_SLUGS.DEVELOPER,
 		title: SETTINGS_SECTION_TITLES.DEVELOPER
+	},
+	// Presets
+	{
+		icon: Sliders,
+		settings: [],
+		slug: SETTINGS_SECTION_SLUGS.PRESETS,
+		title: SETTINGS_SECTION_TITLES.PRESETS
 	}
 ];
 
