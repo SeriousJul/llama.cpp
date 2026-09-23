@@ -1617,3 +1617,8 @@ void ggml_cuda_mul_mat_q(
         ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst);
 
 bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t n_experts);
+
+// true when ggml_cuda_mul_mat_q folds the swiglu in src1 into its activation quantization,
+// which makes that GLU node's f32 output dead
+bool ggml_cuda_glu_is_fused(
+        const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * dst, const int cc);

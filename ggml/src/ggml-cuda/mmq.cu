@@ -132,6 +132,28 @@ static ggml_prec ggml_cuda_mmq_get_prec_src1(const ggml_tensor * src0, const ggm
     return GGML_PREC_Q4;
 }
 
+static bool ggml_cuda_glu_is_fusable(const ggml_tensor * src1) {
+    if (src1->op != GGML_OP_GLU || src1->src[1] == nullptr) {
+        return false;
+    }
+    if (ggml_get_glu_op(src1) != GGML_GLU_OP_SWIGLU) {
+        return false;
+    }
+
+    const ggml_tensor * gate = src1->src[0];
+    const ggml_tensor * up   = src1->src[1];
+
+    // the quantizer walks the element layout of src1, so both inputs must match it
+    return gate->type == GGML_TYPE_F32 && up->type == GGML_TYPE_F32 &&
+           ggml_is_contiguous(gate) && ggml_is_contiguous(up) && ggml_is_contiguous(src1) &&
+           ggml_are_same_shape(gate, src1) && ggml_are_same_shape(up, src1);
+}
+
+// only the q8_1 quantizer evaluates the swiglu, the native FP4 path reads src1 as-is
+bool ggml_cuda_glu_is_fused(const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * dst, const int cc) {
+    return ggml_cuda_mmq_get_prec_src1(src0, dst, cc) == GGML_PREC_Q8 && ggml_cuda_glu_is_fusable(src1);
+}
+
 void ggml_cuda_mul_mat_q(
         ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, const ggml_tensor * ids, ggml_tensor * dst) {
     GGML_ASSERT(        src1->type == GGML_TYPE_F32);
@@ -155,6 +177,14 @@ void ggml_cuda_mul_mat_q(
     const char  * src0_d = (const char  *) src0->data;
     const float * src1_d = (const float *) src1->data;
     float       *  dst_d = (float       *)  dst->data;
+
+    // a swiglu feeding this GEMM is evaluated inside the activation quantization, which skips a
+    // full f32 round trip over the largest intermediate in the FFN
+    const float * src1_gate = nullptr;
+    if (!ids && ggml_cuda_glu_is_fused(src0, src1, dst, cc)) {
+        src1_d    = (const float *) src1->src[1]->data;
+        src1_gate = (const float *) src1->src[0]->data;
+    }
 
     // If src0 is a temporary compute buffer, clear any potential padding.
     if (ggml_backend_buffer_get_usage(src0->buffer) == GGML_BACKEND_BUFFER_USAGE_COMPUTE) {
@@ -206,7 +236,7 @@ void ggml_cuda_mul_mat_q(
 
             } else {
                 quantize_mmq_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), src0->type, ne10, s11, s12, s13, ne10_padded,
-                                       ne11, ne12, ne13, stream);
+                                       ne11, ne12, ne13, stream, src1_gate);
             }
             CUDA_CHECK(cudaGetLastError());
         }
