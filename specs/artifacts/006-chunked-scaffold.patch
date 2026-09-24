@@ -1,0 +1,437 @@
+diff --git i/ggml/src/ggml-cuda/gated_delta_net.cu w/ggml/src/ggml-cuda/gated_delta_net.cu
+index b43a68d02..59244b589 100644
+--- i/ggml/src/ggml-cuda/gated_delta_net.cu
++++ w/ggml/src/ggml-cuda/gated_delta_net.cu
+@@ -296,6 +296,397 @@ static void launch_gated_delta_net(
+     }
+ }
+ 
++// Chunked prefill kernel, specs/006 stages 1 and 2: the fp32 SIMT form of the chunk body. Built only
++// when GGML_CUDA_GDN_CHUNKED is set at compile time, so with the flag off the recurrent kernel above
++// is the only gated-delta-net path that runs. This form is not the deliverable: it is the readable
++// version that makes the algebra and the bookkeeping fail loudly, and stage 3 moves the four big
++// terms to mma.sync. Its tiles are fp32 because f16 ones land on the op test's tolerance exactly:
++// sqrt(1e-7) is f16 epsilon, see the stage 2 section of specs/006.
++#ifndef GGML_CUDA_GDN_CHUNKED
++#define GGML_CUDA_GDN_CHUNKED 0
++#endif
++
++#if GGML_CUDA_GDN_CHUNKED
++
++// threads per block: the 256-thread shape the shared-memory gate in specs/006 was priced against,
++// held fixed across warp widths so a wave64 build keeps the same budget
++#define GGML_CUDA_GDN_CHUNK_NTHREADS 256
++
++
++// Chunk size in tokens, and state columns per block. specs/006 leaves C = 16 versus C = 64 open for
++// stage 3 to measure, and the column count is what decides how many CTAs exist, so both are template
++// arguments rather than constants baked into the index math.
++#ifndef GGML_CUDA_GDN_CHUNK_C
++#define GGML_CUDA_GDN_CHUNK_C 16
++#endif
++
++#ifndef GGML_CUDA_GDN_CHUNK_DV_TILE
++#define GGML_CUDA_GDN_CHUNK_DV_TILE 32
++#endif
++
++// Shared memory per block: the resident state, the k and q operand tiles, the v tile that becomes
++// rhs and then delta, the gam_t QS_t accumulator, and one C x C scratch that holds T while it is
++// being solved and then the decayed Q K^T. Everything the chunk body multiplies is fp32 here, which
++// is what stage 2 is: the fp32 SIMT form, matching the host validator to fp32 rounding. f16 tiles
++// belong to stage 3's mma operands, and the sizing below shows why the two cannot share a budget:
++// the fp32 form only fits at C = 16. Every region is a multiple of 16 B, so each tile keeps the
++// alignment ldmatrix will need in stage 3.
++template <int S_v, int C, int DV_TILE>
++struct ggml_cuda_gdn_chunked_smem {
++    static constexpr size_t state   = (size_t) DV_TILE * S_v * sizeof(float);
++    static constexpr size_t kq      = (size_t) 2 * C * S_v * sizeof(float);
++    static constexpr size_t delta   = (size_t) C * DV_TILE * sizeof(float);
++    static constexpr size_t accum   = (size_t) C * DV_TILE * sizeof(float);
++    static constexpr size_t mat     = (size_t) C * C * sizeof(float);
++    static constexpr size_t scalars = (size_t) 2 * C * sizeof(float);
++
++    static constexpr size_t bytes = state + kq + delta + accum + mat + scalars;
++};
++
++// The stage 1 gate: the layout is still what specs/006 measured on the device. Every (S_v, C) the
++// wrapper can pick must fit one opt-in block, and the full-state column count is asserted
++// separately because filling the machine is what the column split exists to do.
++static_assert(ggml_cuda_gdn_chunked_smem<128, 16, 32>::bytes <= 48 * 1024, "S_v = 128, C = 16 no longer fits without the opt-in");
++static_assert(ggml_cuda_gdn_chunked_smem<64,  16, 32>::bytes <= 48 * 1024, "S_v = 64,  C = 16 no longer fits without the opt-in");
++static_assert(ggml_cuda_gdn_chunked_smem<32,  16, 32>::bytes <= 48 * 1024, "S_v = 32,  C = 16 no longer fits without the opt-in");
++// the fp32 tiles only reach C = 64 by giving up the column split, and that is not on the table:
++static_assert(ggml_cuda_gdn_chunked_smem<128, 64, 32>::bytes  > 99 * 1024, "C = 64 fp32 fits now: re-check before wasting a stage 3 on it");
++// the full state fits in one block at C = 16 but never two, which is the whole reason the columns
++// are split: 32 CTAs against 128 SMs is a quarter of the machine whatever C is
++static_assert(ggml_cuda_gdn_chunked_smem<128, 16, 128>::bytes * 2 > 100 * 1024, "the full-state shape now holds 2 blocks per SM");
++
++template <int S_v, int C, int DV_TILE, int LANES>
++__global__ void __launch_bounds__(GGML_CUDA_GDN_CHUNK_NTHREADS)
++gated_delta_net_chunked_cuda(const float * q,
++                             const float * k,
++                             const float * v,
++                             const float * g,
++                             const float * beta,
++                             const float * curr_state,
++                             float *       dst,
++                             float *       state,
++                             int64_t       H,
++                             int64_t       n_tokens,
++                             int64_t       sq1,
++                             int64_t       sq2,
++                             int64_t       sq3,
++                             int64_t       sv1,
++                             int64_t       sv2,
++                             int64_t       sv3,
++                             int64_t       sb1,
++                             int64_t       sb2,
++                             int64_t       sb3,
++                             const uint3   neqk1_magic,
++                             const uint3   rq3_magic,
++                             float         scale) {
++    // One block per (head, sequence, state-column tile). It owns every row of its DV_TILE state
++    // columns, so the only serial dimension left is the chunk loop: n_tokens / C steps instead of
++    // n_tokens. The columns are split because the grid has to reach 128 CTAs; see the stage 1
++    // section of specs/006.
++    constexpr int warp_size = LANES;
++    constexpr int nthreads  = GGML_CUDA_GDN_CHUNK_NTHREADS;
++    constexpr int nwarps    = nthreads / warp_size;
++
++    static_assert(nthreads % warp_size == 0, "the block must hold a whole number of warps");
++    static_assert(DV_TILE <= S_v && S_v % DV_TILE == 0, "the column tile must divide the state");
++    static_assert(C % 16 == 0, "the chunk must be a whole number of mma k steps");
++    static_assert(S_v % 4 == 0 && DV_TILE % 4 == 0, "tiles are staged four elements per lane step");
++
++    const uint32_t h_idx    = blockIdx.x;
++    const uint32_t sequence = blockIdx.y;
++    const int      col0     = blockIdx.z * DV_TILE;
++
++    const int lane = threadIdx.x;
++    const int warp = threadIdx.y;
++    const int tid  = warp * warp_size + lane;
++
++    const uint32_t iq1 = fastmodulo(h_idx, neqk1_magic);
++    const uint32_t iq3 = fastdiv(sequence, rq3_magic);
++
++    extern __shared__ char smem_gdn[];
++
++    float * s_state = (float *) smem_gdn;
++    float * s_k     = s_state + (size_t) DV_TILE * S_v;
++    float * s_q     = s_k + (size_t) C * S_v;
++    float * s_delta = (float *) (s_q + (size_t) C * S_v);   // v, then rhs, then delta, in place
++    float * s_out   = s_delta + (size_t) C * DV_TILE;       // gam_t QS_t, then the finished output
++    float * s_mat   = s_out + (size_t) C * DV_TILE;         // T, then the decayed Q K^T
++    float * s_gam   = s_mat + (size_t) C * C;               // cumulative gate, log domain
++    float * s_beta  = s_gam + C;
++
++    // state slots are transposed: row c holds S[i][c], contiguous in i
++    curr_state += (int64_t) sequence * H * S_v * S_v + ((int64_t) h_idx * S_v + col0) * S_v;
++    state      += ((int64_t) sequence * H + h_idx) * S_v * S_v + (int64_t) col0 * S_v;
++    float * attn_data = dst + ((int64_t) sequence * n_tokens * H + h_idx) * S_v + col0;
++
++    ggml_cuda_pdl_sync();
++
++    for (int idx = tid; idx < DV_TILE * S_v / 4; idx += nthreads) {
++        const int c = idx / (S_v / 4);
++        const int i = (idx % (S_v / 4)) * 4;
++
++        *(float4 *) &s_state[c * S_v + i] = *(const float4 *) &curr_state[c * S_v + i];
++    }
++
++    const int n_chunks = (int) ((n_tokens + C - 1) / C);
++
++    for (int ch = 0; ch < n_chunks; ch++) {
++        const int t_beg = ch * C;
++        const int n_t   = (int) (n_tokens - t_beg < C ? n_tokens - t_beg : C);
++
++        // Rows past the end of the batch are staged as zeros rather than skipped: with k = q = 0 and
++        // beta = 0 a padded token contributes nothing to T, to delta or to the state update, and its
++        // output row is not stored. A padded token also takes g = 0, so the chunk-end gate is the
++        // gate of the last real token.
++        for (int idx = tid; idx < C * S_v / 4; idx += nthreads) {
++            const int t = idx / (S_v / 4);
++            const int i = (idx % (S_v / 4)) * 4;
++
++            if (t < n_t) {
++                const int64_t off = iq3 * sq3 + (int64_t) (t_beg + t) * sq2 + iq1 * sq1 + i;
++
++                *(float4 *) &s_k[t * S_v + i] = *(const float4 *) &k[off];
++                *(float4 *) &s_q[t * S_v + i] = *(const float4 *) &q[off];
++            } else {
++                const float4 z = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
++
++                *(float4 *) &s_k[t * S_v + i] = z;
++                *(float4 *) &s_q[t * S_v + i] = z;
++            }
++        }
++
++        for (int idx = tid; idx < C * DV_TILE; idx += nthreads) {
++            const int t = idx / DV_TILE;
++            const int c = idx % DV_TILE;
++
++            s_delta[idx] = t < n_t
++                ? v[(int64_t) sequence * sv3 + (int64_t) (t_beg + t) * sv2 + h_idx * sv1 + col0 + c]
++                : 0.0f;
++        }
++
++        for (int t = tid; t < C; t += nthreads) {
++            const int64_t gb = (int64_t) sequence * sb3 + (int64_t) (t_beg + t) * sb2 + h_idx * sb1;
++
++            s_gam[t]  = t < n_t ? g[gb] : 0.0f;
++            s_beta[t] = t < n_t ? beta[gb] : 0.0f;
++        }
++
++        __syncthreads();
++
++        // The gate is carried in the log domain: s_gam[t] ends up sum_{s<=t} g_s, and every ratio
++        // the chunk body needs is exp(s_gam[t] - s_gam[s]). A quotient of two cumulative products is
++        // not usable here: the long-sequence cases in test-backend-ops draw g as low as -20 per
++        // token, where a product of gam has already flushed to zero and gam_t / gam_s is 0/0.
++        // Production feeds a small negative gate, where the two forms agree to rounding.
++        if (warp == 0 && lane == 0) {
++            float acc = 0.0f;
++
++            for (int t = 0; t < C; t++) {
++                acc += s_gam[t];
++                s_gam[t] = acc;
++            }
++        }
++
++        __syncthreads();
++
++        // ---- KS = k @ S and QS = q @ S over the resident state, then rhs and the QS term ----
++        for (int idx = tid; idx < C * DV_TILE; idx += nthreads) {
++            const int t = idx / DV_TILE;
++            const int c = idx % DV_TILE;
++
++            float ks = 0.0f;
++            float qs = 0.0f;
++
++            for (int i = 0; i < S_v; i += 4) {
++                const float4 k4 = *(const float4 *) &s_k[t * S_v + i];
++                const float4 q4 = *(const float4 *) &s_q[t * S_v + i];
++                const float4 s4 = *(const float4 *) &s_state[c * S_v + i];
++
++                ks += k4.x * s4.x + k4.y * s4.y + k4.z * s4.z + k4.w * s4.w;
++                qs += q4.x * s4.x + q4.y * s4.y + q4.z * s4.z + q4.w * s4.w;
++            }
++
++            const float gam_t = expf(s_gam[t]);
++
++            s_out[idx]   = qs * gam_t;
++            s_delta[idx] = s_beta[t] * (s_delta[idx] - ks * gam_t);
++        }
++
++        __syncthreads();
++
++        // ---- T[t][s] = beta_t (k_t . k_s) gam_t / gam_s, strictly lower ----
++        for (int idx = tid; idx < C * C; idx += nthreads) {
++            const int t = idx / C;
++            const int s = idx % C;
++
++            float m = 0.0f;
++
++            if (s < t) {
++                for (int i = 0; i < S_v; i += 4) {
++                    const float4 k4 = *(const float4 *) &s_k[t * S_v + i];
++                    const float4 l4 = *(const float4 *) &s_k[s * S_v + i];
++
++                    m += k4.x * l4.x + k4.y * l4.y + k4.z * l4.z + k4.w * l4.w;
++                }
++
++                m *= s_beta[t] * expf(s_gam[t] - s_gam[s]);
++            }
++
++            s_mat[idx] = m;
++        }
++
++        __syncthreads();
++
++        // ---- delta = (I + T)^-1 rhs by forward substitution, in place over rhs ----
++        // Row i is final once the loop reaches it, so one pass subtracts it from every row below.
++        // I + T has a unit diagonal, so there is no division and no separate inverse tile.
++        for (int i = 0; i < C; i++) {
++            for (int idx = tid; idx < C * DV_TILE; idx += nthreads) {
++                const int t = idx / DV_TILE;
++
++                if (t > i) {
++                    const int c = idx % DV_TILE;
++
++                    s_delta[idx] -= s_mat[t * C + i] * s_delta[i * DV_TILE + c];
++                }
++            }
++
++            __syncthreads();
++        }
++
++        // ---- A[t][s] = (q_t . k_s) gam_t / gam_s, lower with the diagonal ----
++        // Reuses the T scratch: the substitution is done with it.
++        for (int idx = tid; idx < C * C; idx += nthreads) {
++            const int t = idx / C;
++            const int s = idx % C;
++
++            float m = 0.0f;
++
++            if (s <= t) {
++                for (int i = 0; i < S_v; i += 4) {
++                    const float4 q4 = *(const float4 *) &s_q[t * S_v + i];
++                    const float4 k4 = *(const float4 *) &s_k[s * S_v + i];
++
++                    m += q4.x * k4.x + q4.y * k4.y + q4.z * k4.z + q4.w * k4.w;
++                }
++
++                m *= expf(s_gam[t] - s_gam[s]);
++            }
++
++            s_mat[idx] = m;
++        }
++
++        __syncthreads();
++
++        // ---- out_t = scale [ gam_t QS_t + sum_{s<=t} A[t][s] delta_s ] ----
++        for (int idx = tid; idx < C * DV_TILE; idx += nthreads) {
++            const int t = idx / DV_TILE;
++            const int c = idx % DV_TILE;
++
++            if (t >= n_t) {
++                continue;
++            }
++
++            float acc = s_out[idx];
++
++            for (int s = 0; s <= t; s++) {
++                acc += s_mat[t * C + s] * s_delta[s * DV_TILE + c];
++            }
++
++            attn_data[(int64_t) (t_beg + t) * H * S_v + c] = acc * scale;
++        }
++
++        // ---- S = gam_C S + sum_s (gam_C / gam_s) k_s (x) delta_s ----
++        for (int idx = tid; idx < DV_TILE * S_v; idx += nthreads) {
++            const int c = idx / S_v;
++            const int i = idx % S_v;
++
++            float add = 0.0f;
++
++            for (int s = 0; s < C; s++) {
++                add += expf(s_gam[C - 1] - s_gam[s]) * s_k[s * S_v + i] * s_delta[s * DV_TILE + c];
++            }
++
++            s_state[c * S_v + i] = s_state[c * S_v + i] * expf(s_gam[C - 1]) + add;
++        }
++
++        // the next chunk stages over tiles this body reads
++        __syncthreads();
++    }
++
++    for (int idx = tid; idx < DV_TILE * S_v / 4; idx += nthreads) {
++        const int c = idx / (S_v / 4);
++        const int i = (idx % (S_v / 4)) * 4;
++
++        *(float4 *) &state[c * S_v + i] = *(const float4 *) &s_state[c * S_v + i];
++    }
++}
++
++// Called from the op wrapper only under GGML_CUDA_GDN_CHUNKED. The column tile is a grid dimension
++// and the chunk loop is not: the state is carried between chunks inside one block.
++template <int S_v, int C, int DV_TILE>
++[[maybe_unused]] static void launch_gated_delta_net_chunked(
++        const float * q_d, const float * k_d, const float * v_d,
++        const float * g_d, const float * b_d, const float * s_d,
++        float * dst_d, float * state_d,
++        int64_t H, int64_t n_tokens, int64_t n_seqs,
++        int64_t sq1, int64_t sq2, int64_t sq3,
++        int64_t sv1, int64_t sv2, int64_t sv3,
++        int64_t sb1, int64_t sb2, int64_t sb3,
++        int64_t neqk1, int64_t rq3,
++        float scale, cudaStream_t stream) {
++    constexpr size_t nbytes_shared = ggml_cuda_gdn_chunked_smem<S_v, C, DV_TILE>::bytes;
++
++    const int    id    = ggml_cuda_get_device();
++    const size_t smpbo = ggml_cuda_info().devices[id].smpbo;
++
++    // scalar gate, K == 1 with no per-token snapshots, and a state the column tile divides
++    GGML_ASSERT(S_v >= DV_TILE && S_v % DV_TILE == 0 && n_tokens >= C && neqk1 > 0);
++    GGML_ASSERT(nbytes_shared <= smpbo);
++
++    // the tiles are staged four floats at a time, so every row start must stay 16 B aligned on top of
++    // the 128 B alignment the CUDA allocator guarantees
++    GGML_ASSERT(sq1 % 4 == 0 && sq2 % 4 == 0 && sq3 % 4 == 0);
++    GGML_ASSERT(sv1 % 4 == 0 && sv2 % 4 == 0 && sv3 % 4 == 0);
++    GGML_ASSERT(sb1 == 1 && sb2 == H && sb3 == H * n_tokens);   // scalar gate, contiguous g and beta
++
++    if (nbytes_shared > 48 * 1024) {
++        CUDA_SET_SHARED_MEMORY_LIMIT((gated_delta_net_chunked_cuda<S_v, C, DV_TILE, 32>), smpbo);
++    }
++
++    const uint3 neqk1_magic = init_fastdiv_values(neqk1);
++    const uint3 rq3_magic   = init_fastdiv_values(rq3);
++
++    const int  warp_size = ggml_cuda_info().devices[id].warp_size;
++    const dim3 grid_dims(H, n_seqs, S_v / DV_TILE);
++    const dim3 block_dims(warp_size, GGML_CUDA_GDN_CHUNK_NTHREADS / warp_size, 1);
++
++    const ggml_cuda_kernel_launch_params launch_params(grid_dims, block_dims, nbytes_shared, stream);
++
++    // The 64-lane branch is what a wave64 build takes. Keeping it in the same switch makes the
++    // wave64 form part of every compile instead of a claim about code nobody built.
++    if (warp_size == 64) {
++        ggml_cuda_kernel_launch(gated_delta_net_chunked_cuda<S_v, C, DV_TILE, 64>, launch_params,
++            q_d, k_d, v_d, g_d, b_d, s_d, dst_d, state_d, H, n_tokens,
++            sq1, sq2, sq3, sv1, sv2, sv3, sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
++        return;
++    }
++
++    ggml_cuda_kernel_launch(gated_delta_net_chunked_cuda<S_v, C, DV_TILE, 32>, launch_params,
++        q_d, k_d, v_d, g_d, b_d, s_d, dst_d, state_d, H, n_tokens,
++        sq1, sq2, sq3, sv1, sv2, sv3, sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
++}
++
++// stage 3 has not picked a chunk size yet, so both candidates are compiled and cuobjdump reports
++// their registers: taking the address makes ptxas emit the instantiation. Nothing launches these.
++[[maybe_unused]] static const void * ggml_cuda_gdn_chunked_probe[] = {
++    (const void *) &launch_gated_delta_net_chunked<128, 16, 32>,
++    (const void *) &launch_gated_delta_net_chunked<64,  16, 32>,
++    (const void *) &launch_gated_delta_net_chunked<32,  16, 32>,
++};
++
++#endif // GGML_CUDA_GDN_CHUNKED
++
+ static void ggml_cuda_op_gated_delta_net_impl(
+         ggml_backend_cuda_context & ctx, ggml_tensor * dst, const ggml_cuda_gated_delta_net_fused_cache * cache) {
+     ggml_tensor * src_q     = dst->src[0];
+@@ -365,6 +756,7 @@ static void ggml_cuda_op_gated_delta_net_impl(
+     const int K = ggml_get_op_params_i32(dst, 0);
+     const bool keep_rs = K > 1;
+ 
++
+     // recurrent state -> gdn_out tail (after attention scores), or the cache when fusing
+     float * state_d           = dst_d + S_v * H * n_tokens * n_seqs;
+     int64_t state_slot_stride = S_v * S_v * H * n_seqs;
+@@ -373,6 +765,26 @@ static void ggml_cuda_op_gated_delta_net_impl(
+         state_slot_stride = cache->slot_stride;
+     }
+ 
++#if GGML_CUDA_GDN_CHUNKED
++    // stage 2 of specs/006: the chunked prefill path. Everything the chunk body does not
++    // implement (KDA gate, K > 1 snapshots, other state widths, short batches) stays on the
++    // recurrent kernel above.
++    if (!kda && !keep_rs && S_v >= GGML_CUDA_GDN_CHUNK_DV_TILE && S_v % GGML_CUDA_GDN_CHUNK_DV_TILE == 0 &&
++            n_tokens >= GGML_CUDA_GDN_CHUNK_C) {
++#define GDN_CHUNKED_LAUNCH(SV)                                                                                   \
++    launch_gated_delta_net_chunked<SV, GGML_CUDA_GDN_CHUNK_C, GGML_CUDA_GDN_CHUNK_DV_TILE>(                       \
++            q_d, k_d, v_d, g_d, b_d, s_d, dst_d, state_d, H, n_tokens, n_seqs,                                    \
++            sq1, sq2, sq3, sv1, sv2, sv3, sb1, sb2, sb3, neqk1, rq3, scale, stream)
++        switch (S_v) {
++            case 32:  GDN_CHUNKED_LAUNCH(32);  return;
++            case 64:  GDN_CHUNKED_LAUNCH(64);  return;
++            case 128: GDN_CHUNKED_LAUNCH(128); return;
++            default: break;
++        }
++#undef GDN_CHUNKED_LAUNCH
++    }
++#endif // GGML_CUDA_GDN_CHUNKED
++
+     if (kda) {
+         if (keep_rs) {
+             launch_gated_delta_net<true, true>(q_d, k_d, v_d, g_d, b_d, s_d, dst_d, state_d,

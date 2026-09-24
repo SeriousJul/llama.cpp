@@ -1,0 +1,45 @@
+==PROF== Connected to process 2657518 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 1
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10425.44 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2657518
+==PROF== Connected to process 2657554 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 2
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10443.57 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2657554
+==PROF== Connected to process 2657585 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 3
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10460.59 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2657585
+==PROF== Creating report from application replay data: 0%.....100%
+[2657518] llama-bench@127.0.0.1
+  void gated_delta_net_cuda<128, 0, 0>(const float *, const float *, const float *, const float *, const float *, const float *, float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, float, long, int) (32, 1, 32)x(32, 4, 1), Context 1, Stream 14, Device 0, CC 8.9
+    Section: Command line profiler metrics
+    --------------------------------------- ----------- ------------
+    Metric Name                             Metric Unit Metric Value
+    --------------------------------------- ----------- ------------
+    sm__inst_executed_pipe_lsu.sum                 inst   46,182,400
+    sm__inst_executed_pipe_tensor.sum              inst            0
+    sm__sass_inst_executed_op_global_ld.sum        inst   23,085,056
+    sm__sass_inst_executed_op_global_st.sum        inst    2,113,536
+    sm__sass_inst_executed_op_shared_ld.sum        inst            0
+    sm__sass_inst_executed_op_shared_st.sum        inst            0
+    --------------------------------------- ----------- ------------
+
