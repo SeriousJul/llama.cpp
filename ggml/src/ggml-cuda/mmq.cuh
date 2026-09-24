@@ -1406,6 +1406,17 @@ static void launch_mul_mat_q(ggml_backend_cuda_context & ctx, const mmq_args & a
 
     const dim3 block_dims(warp_size, nwarps, 1);
 
+    // The MMA vec_dot kernels walk rows as (nwarps / ntx) * rows_per_warp with
+    // ntx = rows_per_warp / 16, so I is derived from nthreads, warp size and J rather
+    // than being free. An inconsistent row compiles and then reads off the end of the
+    // weight tile at run time.
+    if (config.use_mma_data_layout(cc)) {
+        const int rows_per_warp = amd_mfma_available(cc) || amd_wmma_available(cc) ? 16
+                                 : (config.J >= 48 && config.J % 16 == 0 ? 32 : 16);
+        GGML_ASSERT(config.I == config.nthreads / warp_size / (rows_per_warp / 16) * rows_per_warp &&
+                    "MMQ: config.I is derived from nthreads, warp size and J");
+    }
+
     CUDA_SET_SHARED_MEMORY_LIMIT((mul_mat_q<type, J, false>), nbytes_shared);
     CUDA_SET_SHARED_MEMORY_LIMIT((mul_mat_q<type, J,  true>), nbytes_shared);
 
