@@ -1,0 +1,220 @@
+==PROF== Connected to process 239781 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 1
+==PROF== Profiling "mul_mat_q": Application replay pass 1
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8737.33 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 239781
+==PROF== Connected to process 240085 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 2
+==PROF== Profiling "mul_mat_q": Application replay pass 2
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8712.05 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 240085
+==PROF== Connected to process 240491 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 3
+==PROF== Profiling "mul_mat_q": Application replay pass 3
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8682.26 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 240491
+==PROF== Connected to process 240957 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 4
+==PROF== Profiling "mul_mat_q": Application replay pass 4
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8679.82 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 240957
+==PROF== Connected to process 241398 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 5
+==PROF== Profiling "mul_mat_q": Application replay pass 5
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8672.06 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 241398
+==PROF== Connected to process 241684 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 6
+==PROF== Profiling "mul_mat_q": Application replay pass 6
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8655.29 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 241684
+==PROF== Connected to process 241981 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 7
+==PROF== Profiling "mul_mat_q": Application replay pass 7
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8649.80 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 241981
+==PROF== Connected to process 243874 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 8
+==PROF== Profiling "mul_mat_q": Application replay pass 8
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8657.27 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 243874
+==PROF== Connected to process 244225 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 9
+==PROF== Profiling "mul_mat_q": Application replay pass 9
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8646.08 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 244225
+==PROF== Connected to process 244568 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "mul_mat_q": Application replay pass 10
+==PROF== Profiling "mul_mat_q": Application replay pass 10
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |         pp65536 |       8664.06 ± 0.00 |
+
+build: 247376881 (11145)
+==PROF== Disconnected from process 244568
+==PROF== Creating report from application replay data: 0%..................100%
+[239781] llama-bench@127.0.0.1
+  void mul_mat_q<23, 128, 0>(const char *, const int *, const int *, const int *, float *, float *, const float *, uint3, int, int, int, int, int, uint3, uint3, int, int, int, uint3, uint3, int, int, int, uint3) (256, 1, 1)x(32, 8, 1), Context 1, Stream 14, Device 0, CC 8.9
+    Section: Command line profiler metrics
+    ---------------------------------------------------------------------- ----------- ------------
+    Metric Name                                                            Metric Unit Metric Value
+    ---------------------------------------------------------------------- ----------- ------------
+    sm__inst_executed_pipe_alu.avg.pct_of_peak_sustained_active                      %        33.74
+    sm__inst_executed_pipe_f2f.avg.pct_of_peak_sustained_active                             (!) n/a
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active                      %        20.99
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active                      %        50.83
+    sm__inst_executed_pipe_tensor_op_imma.avg.pct_of_peak_sustained_active           %         9.91
+    sm__inst_executed_pipe_uniform.avg.pct_of_peak_sustained_active                  %         0.16
+    smsp__inst_executed.sum                                                       inst   79,409,152
+    smsp__issue_active.avg.pct_of_peak_sustained_active                              %        46.81
+    ---------------------------------------------------------------------- ----------- ------------
+
+    Section: GPU Speed Of Light Throughput
+    ----------------------- ----------- ------------
+    Metric Name             Metric Unit Metric Value
+    ----------------------- ----------- ------------
+    DRAM Frequency                  Ghz        10.24
+    SM Frequency                    Ghz         2.45
+    Elapsed Cycles                cycle      341,843
+    Memory Throughput                 %        49.13
+    DRAM Throughput                   %        14.85
+    Duration                         us       139.26
+    L1/TEX Cache Throughput           %        50.83
+    L2 Cache Throughput               %        37.72
+    SM Active Cycles              cycle   330,603.21
+    Compute (SM) Throughput           %        49.13
+    ----------------------- ----------- ------------
+
+    OPT   This workload exhibits low compute throughput and memory bandwidth utilization relative to the peak           
+          performance of this device. Achieved compute throughput and/or memory bandwidth below 60.0% of peak           
+          typically indicate latency issues. Look at Scheduler Statistics and Warp State Statistics for potential       
+          reasons.                                                                                                      
+
+    Section: Compute Workload Analysis
+    -------------------- ----------- ------------
+    Metric Name          Metric Unit Metric Value
+    -------------------- ----------- ------------
+    Executed Ipc Active   inst/cycle         1.88
+    Executed Ipc Elapsed  inst/cycle         1.81
+    Issue Slots Busy               %        45.36
+    Issued Ipc Active     inst/cycle         1.88
+    SM Busy                        %        45.36
+    -------------------- ----------- ------------
+
+    INF   Tensor is the highest-utilized pipeline (38.3%) based on elapsed cycles in the workload, taking into account  
+          the rates of its different instructions. It is the logical aggregation of individual tensor pipelines. It's   
+          dominated by its Tensor (INT) sub-pipeline. It is well-utilized, but should not be a bottleneck. Based on     
+          the number of executed instructions, the highest utilized pipeline (49.1%) is LSU. It executes load/store     
+          memory operations. Comparing the two, the overall pipeline utilization appears to be caused by frequent,      
+          low-latency instructions. See the Profiling Guide                                                             
+          (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-decoder) or hover over the          
+          pipeline name to understand the workloads handled by each pipeline. The Instruction Statistics section shows  
+          the mix of executed instructions for this workload.                                                           
+
+  void mul_mat_q<8, 128, 1>(const char *, const int *, const int *, const int *, float *, float *, const float *, uint3, int, int, int, int, int, uint3, uint3, int, int, int, uint3, uint3, int, int, int, uint3) (128, 1, 1)x(32, 8, 1), Context 1, Stream 14, Device 0, CC 8.9
+    Section: Command line profiler metrics
+    ---------------------------------------------------------------------- ----------- ------------
+    Metric Name                                                            Metric Unit Metric Value
+    ---------------------------------------------------------------------- ----------- ------------
+    sm__inst_executed_pipe_alu.avg.pct_of_peak_sustained_active                      %        12.48
+    sm__inst_executed_pipe_f2f.avg.pct_of_peak_sustained_active                             (!) n/a
+    sm__inst_executed_pipe_fma.avg.pct_of_peak_sustained_active                      %         5.99
+    sm__inst_executed_pipe_lsu.avg.pct_of_peak_sustained_active                      %        19.01
+    sm__inst_executed_pipe_tensor_op_imma.avg.pct_of_peak_sustained_active           %         2.61
+    sm__inst_executed_pipe_uniform.avg.pct_of_peak_sustained_active                  %         0.11
+    smsp__inst_executed.sum                                                       inst    1,615,328
+    smsp__issue_active.avg.pct_of_peak_sustained_active                              %        17.37
+    ---------------------------------------------------------------------- ----------- ------------
+
+    Section: GPU Speed Of Light Throughput
+    ----------------------- ----------- ------------
+    Metric Name             Metric Unit Metric Value
+    ----------------------- ----------- ------------
+    DRAM Frequency                  Ghz        10.21
+    SM Frequency                    Ghz         2.49
+    Elapsed Cycles                cycle       41,005
+    Memory Throughput                 %        29.55
+    DRAM Throughput                   %        29.55
+    Duration                         us        16.42
+    L1/TEX Cache Throughput           %        19.01
+    L2 Cache Throughput               %        13.02
+    SM Active Cycles              cycle    19,606.81
+    Compute (SM) Throughput           %         9.05
+    ----------------------- ----------- ------------
+
+    OPT   This workload exhibits low compute throughput and memory bandwidth utilization relative to the peak           
+          performance of this device. Achieved compute throughput and/or memory bandwidth below 60.0% of peak           
+          typically indicate latency issues. Look at Scheduler Statistics and Warp State Statistics for potential       
+          reasons.                                                                                                      
+
+    Section: Compute Workload Analysis
+    -------------------- ----------- ------------
+    Metric Name          Metric Unit Metric Value
+    -------------------- ----------- ------------
+    Executed Ipc Active   inst/cycle         0.64
+    Executed Ipc Elapsed  inst/cycle         0.31
+    Issue Slots Busy               %         7.75
+    Issued Ipc Active     inst/cycle         0.65
+    SM Busy                        %         7.75
+    -------------------- ----------- ------------
+
+    OPT   Est. Local Speedup: 94.06%                                                                                    
+          All compute pipelines are under-utilized. Either this workload is very small or it doesn't issue enough warps 
+          per scheduler. Check the Launch Statistics and Scheduler Statistics sections for further details.             
+

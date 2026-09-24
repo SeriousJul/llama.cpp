@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# A/B capture of the 131k E2-equivalent decode step under nsys.
+#
+# Runs the whole window in one process so nothing can poke the router in
+# between: stops the service (VRAM freed, no auto-reload possible), captures
+# with the old library, swaps in the new library, captures again, restores
+# and restarts the service.
+#
+# Usage: fattn-ab-capture
+# Inputs:  /tmp/fattn-ab/libggml-cuda.so.0.{old,new}   (pre-built)
+# Output:  /tmp/fattn-ab/cap-{old,new}.nsys-rep
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+
+AB_DIR=/tmp/fattn-ab
+PORT=8081
+M27="/home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf"
+SO_REAL="build/bin/libggml-cuda.so.0.24.0"
+NGEN=256
+TARGET=131072
+
+log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
+
+wait_gpu_free() {
+  for i in $(seq 1 100); do
+    local m
+    m=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader -i 0 | grep -o '[0-9]*')
+    [ "$m" -lt 2000 ] && { log "GPU free: $m MiB"; return; }
+    sleep 3
+  done
+  log "ERROR: GPU still busy after 5 min"; exit 1
+}
+
+make_e2_body() {  # $1 = body file
+  local pfile chars count i
+  if [ -n "${REAL_PROMPT:-}" ]; then
+    count=$(cat "$REAL_PROMPT" | ./build/bin/llama-tokenize -m "$M27" --stdin --show-count 2>/dev/null | tail -1 | grep -o '[0-9]*')
+    log "REAL_PROMPT tokens: $count"
+    jq -n --arg m "qwen3.8-27b-dflash" --rawfile p "$REAL_PROMPT" --argjson n "$NGEN" \
+      '{model: $m, messages: [{role: "user", content: $p}], max_tokens: $n, temperature: 0, stream: false}' > "$1"
+    return
+  fi
+  pfile=$(mktemp); chars=$((TARGET * 3))
+  for i in 1 2 3; do
+    python3 - "$pfile" "E2" "$chars" <<'EOF'
+import sys
+path, label, chars = sys.argv[1], sys.argv[2], int(sys.argv[3])
+line = label + ":" + str(hash(label) % 99999) + " the quick brown fox jumps over the lazy dog 0123456789 "
+with open(path, "w") as f:
+    f.write((line * (chars // len(line) + 1))[:chars])
+EOF
+    count=$(cat "$pfile" | ./build/bin/llama-tokenize -m "$M27" --stdin --show-count 2>/dev/null | tail -1 | grep -o '[0-9]*')
+    [ "$count" -ge $((TARGET * 98 / 100)) ] && [ "$count" -le $((TARGET * 102 / 100)) ] && break
+    chars=$(( chars * TARGET / count ))
+  done
+  log "prompt tokens: $count"
+  jq -n --arg m "qwen3.8-27b-dflash" --rawfile p "$pfile" --argjson n "$NGEN" \
+    '{model: $m, messages: [{role: "user", content: $p}], max_tokens: $n, temperature: 0, stream: false}' > "$1"
+  rm -f "$pfile"
+}
+
+capture() {  # $1 = tag
+  local tag=$1
+  local body
+  body=$(mktemp)
+  log "capture $tag: waiting for 8081"
+  for i in $(seq 1 60); do
+    curl -s --max-time 3 "http://127.0.0.1:$PORT/models" >/dev/null 2>&1 && break
+    sleep 2
+  done
+  log "capture $tag: sending E2-equivalent (model load happens inside this request)"
+  make_e2_body "$body"
+  local res
+  if ! res=$(curl -s --max-time 900 -X POST "http://127.0.0.1:$PORT/v1/chat/completions" \
+        -H 'Content-Type: application/json' -d @"$body"); then
+    log "capture $tag: curl transport error"
+  fi
+  rm -f "$body"
+  if [ -z "${res:-}" ] || [ "$(echo "$res" | jq -r '.usage.completion_tokens' 2>/dev/null)" = "null" ]; then
+    log "capture $tag: FAILED (no completion); server log tail:"
+    tail -15 "$AB_DIR/srv-$tag.log" >&2
+    stop_capture_server
+    wait_gpu_free
+    exit 1
+  fi
+  echo "$res" | jq '{prompt_tokens: .usage.prompt_tokens, completion_tokens: .usage.completion_tokens}' >&2
+  log "capture $tag: done, stopping server (nsys finalizes)"
+  stop_capture_server
+  wait_gpu_free
+  if [ ! -s "$AB_DIR/cap-$tag.nsys-rep" ]; then
+    log "capture $tag: no nsys report written; aborting"
+    exit 1
+  fi
+  ls -la "$AB_DIR/cap-$tag.nsys-rep" >&2
+}
+
+start_capture_server() {  # $1 = tag; sets global srv_pid (process group leader)
+  log "starting nsys capture server ($1)"
+  setsid nsys profile -o "$AB_DIR/cap-$1" -t cuda --force-overwrite true \
+    ./build/bin/llama-server --models-preset presets.ini --models-max 1 \
+    --host 127.0.0.1 --port "$PORT" --sleep-idle-seconds 99999 \
+    > "$AB_DIR/srv-$1.log" 2>&1 &
+  srv_pid=$!
+}
+
+stop_capture_server() {  # TERM the whole group so nsys finalizes the .rep
+  kill -TERM -- "-$srv_pid" 2>/dev/null || true
+  for i in $(seq 1 90); do kill -0 "$srv_pid" 2>/dev/null || break; sleep 1; done
+  kill -KILL -- "-$srv_pid" 2>/dev/null || true
+  wait "$srv_pid" 2>/dev/null || true
+}
+
+cleanup() {
+  local rc=$?
+  [ -n "${srv_pid:-}" ] && stop_capture_server || true
+  log "restarting service"
+  systemctl --user start llama-server
+  # Only check that the router answers. The model is loaded lazily on the
+  # first real request, so polling for "loaded" can never succeed here.
+  for i in $(seq 1 36); do
+    curl -s --max-time 5 -o /dev/null "http://127.0.0.1:8080/models" 2>/dev/null \
+      && { log "service back (model loads on first request)"; exit $rc; }
+    sleep 5
+  done
+  log "ERROR: service did not come back (rc=$rc)"
+  exit 1
+}
+trap cleanup EXIT
+
+log "stopping service"
+systemctl --user stop llama-server
+wait_gpu_free
+
+for tag in ${@:-old new}; do
+  rm -f "$AB_DIR/cap-$tag.nsys-rep"
+  log "installing $tag library"
+  cp "$AB_DIR/libggml-cuda.so.0.$tag" "$SO_REAL"
+  start_capture_server "$tag"
+  capture "$tag"
+done
+
+log "window complete; last captured library stays installed, service restarts on exit"

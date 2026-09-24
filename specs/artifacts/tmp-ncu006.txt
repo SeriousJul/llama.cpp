@@ -1,0 +1,562 @@
+==PROF== Connected to process 2644148 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 1
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 1
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10627.68 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644148
+==PROF== Connected to process 2644193 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 2
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 2
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10837.65 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644193
+==PROF== Connected to process 2644226 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 3
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 3
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10483.26 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644226
+==PROF== Connected to process 2644322 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 4
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 4
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10481.56 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644322
+==PROF== Connected to process 2644389 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 5
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 5
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10631.35 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644389
+==PROF== Connected to process 2644430 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 6
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 6
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10742.14 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644430
+==PROF== Connected to process 2644462 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 7
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 7
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10594.07 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644462
+==PROF== Connected to process 2644516 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 8
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 8
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10706.58 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644516
+==PROF== Connected to process 2644637 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 9
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 9
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10396.17 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644637
+==PROF== Connected to process 2644681 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 10
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 10
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10682.97 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644681
+==PROF== Connected to process 2644713 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 11
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 11
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10467.72 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644713
+==PROF== Connected to process 2644754 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 12
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 12
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10697.48 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644754
+==PROF== Connected to process 2644799 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 13
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 13
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10685.67 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644799
+==PROF== Connected to process 2644832 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 14
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 14
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10711.30 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644832
+==PROF== Connected to process 2644876 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 15
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 15
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10708.30 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644876
+==PROF== Connected to process 2644961 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 16
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 16
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10700.98 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2644961
+==PROF== Connected to process 2645017 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 17
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 17
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10720.05 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2645017
+==PROF== Connected to process 2645048 (/home/seriousjul/src/llama.cpp/build-004/bin/llama-bench)
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 24084 MiB):
+  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes, VRAM: 24084 MiB
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 18
+==PROF== Profiling "gated_delta_net_cuda": Application replay pass 18
+| model                          |       size |     params | backend    | ngl |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | --------------: | -------------------: |
+| qwen35 9B IQ4_XS - 4.25 bpw    |   4.80 GiB |     8.95 B | CUDA       |  99 |          pp4096 |      10690.47 ± 0.00 |
+
+build: cae41b6ff (11143)
+==PROF== Disconnected from process 2645048
+==PROF== Creating report from application replay data: 0%....................100%
+[2644148] llama-bench@127.0.0.1
+  void gated_delta_net_cuda<128, 0, 0>(const float *, const float *, const float *, const float *, const float *, const float *, float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, float, long, int) (32, 1, 32)x(32, 4, 1), Context 1, Stream 14, Device 0, CC 8.9
+    Section: GPU Speed Of Light Throughput
+    ----------------------- ----------- ------------
+    Metric Name             Metric Unit Metric Value
+    ----------------------- ----------- ------------
+    DRAM Frequency                  Ghz        10.24
+    SM Frequency                    Ghz         2.49
+    Elapsed Cycles                cycle      784,941
+    Memory Throughput                 %        91.94
+    DRAM Throughput                   %         6.19
+    Duration                         us       314.24
+    L1/TEX Cache Throughput           %        93.24
+    L2 Cache Throughput               %        30.01
+    SM Active Cycles              cycle   773,956.88
+    Compute (SM) Throughput           %        91.94
+    ----------------------- ----------- ------------
+
+    INF   This workload is utilizing greater than 80.0% of the available compute or memory performance of this device.  
+          To further improve performance, work will likely need to be shifted from the most utilized to another unit.   
+          Start by analyzing workloads in the Compute Workload Analysis section.                                        
+
+    Section: Compute Workload Analysis
+    -------------------- ----------- ------------
+    Metric Name          Metric Unit Metric Value
+    -------------------- ----------- ------------
+    Executed Ipc Active   inst/cycle         1.78
+    Executed Ipc Elapsed  inst/cycle         1.76
+    Issue Slots Busy               %        43.95
+    Issued Ipc Active     inst/cycle         1.78
+    SM Busy                        %        43.95
+    -------------------- ----------- ------------
+
+    INF   ALU is the highest-utilized pipeline (24.1%) based on elapsed cycles in the workload, taking into account the 
+          rates of its different instructions. It executes integer and logic operations. It is well-utilized, but       
+          should not be a bottleneck. Based on the number of executed instructions, the highest utilized pipeline       
+          (91.9%) is LSU. It executes load/store memory operations. Comparing the two, the overall pipeline             
+          utilization appears to be caused by frequent, low-latency instructions. See the Profiling Guide               
+          (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-decoder) or hover over the          
+          pipeline name to understand the workloads handled by each pipeline. The Instruction Statistics section shows  
+          the mix of executed instructions for this workload. Check the Warp State Statistics section for which         
+          reasons cause warps to stall.                                                                                 
+
+    Section: Memory Workload Analysis
+    --------------------------------------- ----------- ------------
+    Metric Name                             Metric Unit Metric Value
+    --------------------------------------- ----------- ------------
+    Local Memory Spilling Requests                                 0
+    Local Memory Spilling Request Overhead            %            0
+    L2 Sector Promotion Misses                        %            0
+    Shared Memory Spilling Requests                                0
+    Shared Memory Spilling Request Overhead           %            0
+    Memory Throughput                           Gbyte/s        60.86
+    Mem Busy                                          %        46.19
+    Max Bandwidth                                     %        91.94
+    L1/TEX Hit Rate                                   %        82.86
+    L2 Persisting Size                            Mbyte        14.16
+    L2 Compression Success Rate                       %            0
+    L2 Compression Ratio                                           0
+    L2 Compression Input Sectors                 sector            0
+    L2 Hit Rate                                       %        96.20
+    Mem Pipes Busy                                    %        91.94
+    --------------------------------------- ----------- ------------
+
+    Section: Scheduler Statistics
+    ---------------------------- ----------- ------------
+    Metric Name                  Metric Unit Metric Value
+    ---------------------------- ----------- ------------
+    One or More Eligible                   %        44.60
+    Issued Warp Per Scheduler                        0.45
+    No Eligible                            %        55.40
+    Active Warps Per Scheduler          warp         7.79
+    Eligible Warps Per Scheduler        warp         0.75
+    ---------------------------- ----------- ------------
+
+    OPT   Est. Local Speedup: 8.063%                                                                                    
+          Every scheduler is capable of issuing one instruction per cycle, but for this workload each scheduler only    
+          issues an instruction every 2.2 cycles. This might leave hardware resources underutilized and may lead to     
+          less optimal performance. Out of the maximum of 12 warps per scheduler, this workload allocates an average    
+          of 7.79 active warps per scheduler, but only an average of 0.75 warps were eligible per cycle. Eligible       
+          warps are the subset of active warps that are ready to issue their next instruction. Every cycle with no      
+          eligible warp results in no instruction being issued and the issue slot remains unused. To increase the       
+          number of eligible warps, reduce the time the active warps are stalled by inspecting the top stall reasons    
+          on the Warp State Statistics and Source Counters sections.                                                    
+
+    Section: Warp State Statistics
+    ---------------------------------------- ----------- ------------
+    Metric Name                              Metric Unit Metric Value
+    ---------------------------------------- ----------- ------------
+    Warp Cycles Per Issued Instruction             cycle        17.47
+    Warp Cycles Per Executed Instruction           cycle        17.48
+    Avg. Active Threads Per Warp                                   32
+    Avg. Not Predicated Off Threads Per Warp                    30.53
+    ---------------------------------------- ----------- ------------
+
+    WRN   The optional metric smsp__pcsamp_sample_count could not be found. Collecting it as an additional metric could 
+          enable the rule to provide more guidance.                                                                     
+    ----- --------------------------------------------------------------------------------------------------------------
+    OPT   Est. Speedup: 8.063%                                                                                          
+          On average, each warp of this workload spends 6.4 cycles being stalled waiting for a scoreboard dependency on 
+          a L1TEX (local, global, surface, texture) operation. Find the instruction producing the data being waited     
+          upon to identify the culprit. To reduce the number of cycles waiting on L1TEX data accesses verify the        
+          memory access patterns are optimal for the target architecture, attempt to increase cache hit rates by        
+          increasing data locality (coalescing), or by changing the cache configuration. Consider moving frequently     
+          used data to shared memory. This stall type represents about 36.7% of the total average of 17.5 cycles        
+          between issuing two instructions.                                                                             
+    ----- --------------------------------------------------------------------------------------------------------------
+    OPT   Est. Speedup: 8.063%                                                                                          
+          On average, each warp of this workload spends 5.4 cycles being stalled waiting for a scoreboard dependency on 
+          a MIO (memory input/output) operation (not to L1TEX). The primary reason for a high number of stalls due to   
+          short scoreboards is typically memory operations to shared memory. Other reasons include frequent execution   
+          of special math instructions (e.g. MUFU) or dynamic branching (e.g. BRX, JMX). Consult the Memory Workload    
+          Analysis section to verify if there are shared memory operations and reduce bank conflicts, if reported.      
+          Assigning frequently accessed values to variables can assist the compiler in using low-latency registers      
+          instead of direct memory accesses. This stall type represents about 31.0% of the total average of 17.5        
+          cycles between issuing two instructions.                                                                      
+    ----- --------------------------------------------------------------------------------------------------------------
+    INF   Check the Warp Stall Sampling (All Samples) table for the top stall locations in your source based on         
+          sampling data. The Profiling Guide                                                                            
+          (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-reference) provides more details    
+          on each stall reason.                                                                                         
+
+    Section: Instruction Statistics
+    ---------------------------------------- ----------- ------------
+    Metric Name                              Metric Unit Metric Value
+    ---------------------------------------- ----------- ------------
+    Local Memory Spilling Requests                  byte            0
+    Shared Memory Spilling Requests                 byte            0
+    Avg. Executed Instructions Per Scheduler        inst      344,888
+    Executed Instructions                           inst  176,582,656
+    Avg. Issued Instructions Per Scheduler          inst   344,953.70
+    Issued Instructions                             inst  176,616,294
+    ---------------------------------------- ----------- ------------
+
+    OPT   Est. Speedup: 5.78%                                                                                           
+          This workload executes 27262976 fused and 35651584 non-fused FP32 instructions. By converting pairs of        
+          non-fused instructions to their fused                                                                         
+          (https://docs.nvidia.com/cuda/floating-point/#cuda-and-floating-point), higher-throughput equivalent, the     
+          achieved FP32 performance could be increased by up to 28% (relative to its current performance).              
+
+    Section: Launch Statistics
+    -------------------------------- --------------- ---------------
+    Metric Name                          Metric Unit    Metric Value
+    -------------------------------- --------------- ---------------
+    Block Size                                                   128
+    Function Cache Configuration                     CachePreferNone
+    Grid Size                                                  1,024
+    Registers Per Thread             register/thread              47
+    Shared Memory Configuration Size           Kbyte           32.77
+    Driver Shared Memory Per Block       Kbyte/block            1.02
+    Dynamic Shared Memory Per Block       byte/block               0
+    Static Shared Memory Per Block        byte/block               0
+    # SMs                                         SM             128
+    Stack Size                                                 1,024
+    Threads                                   thread         131,072
+    # TPCs                                                        64
+    Enabled TPC IDs                                              all
+    Uses Green Context                                             0
+    Waves Per SM                                                0.80
+    -------------------------------- --------------- ---------------
+
+    Section: Occupancy
+    ------------------------------- ----------- ------------
+    Metric Name                     Metric Unit Metric Value
+    ------------------------------- ----------- ------------
+    Block Limit SM                        block           24
+    Block Limit Registers                 block           10
+    Block Limit Shared Mem                block           32
+    Block Limit Warps                     block           12
+    Theoretical Active Warps per SM        warp           40
+    Theoretical Occupancy                     %        83.33
+    Achieved Occupancy                        %        64.83
+    Achieved Active Warps Per SM           warp        31.12
+    ------------------------------- ----------- ------------
+
+    OPT   Est. Speedup: 8.063%                                                                                          
+          The difference between calculated theoretical (83.3%) and measured achieved occupancy (64.8%) can be the      
+          result of warp scheduling overheads or workload imbalances during the kernel execution. Load imbalances can   
+          occur between warps within a block as well as across blocks of the same kernel. See the CUDA Best Practices   
+          Guide (https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html#occupancy) for more details on     
+          optimizing occupancy.                                                                                         
+
+  void gated_delta_net_cuda<128, 0, 0>(const float *, const float *, const float *, const float *, const float *, const float *, float *, float *, long, long, long, long, long, long, long, long, long, long, long, long, uint3, uint3, float, long, int) (32, 1, 32)x(32, 4, 1), Context 1, Stream 14, Device 0, CC 8.9
+    Section: GPU Speed Of Light Throughput
+    ----------------------- ----------- ------------
+    Metric Name             Metric Unit Metric Value
+    ----------------------- ----------- ------------
+    DRAM Frequency                  Ghz        10.24
+    SM Frequency                    Ghz         2.50
+    Elapsed Cycles                cycle      786,719
+    Memory Throughput                 %        92.10
+    DRAM Throughput                   %         6.20
+    Duration                         us       314.66
+    L1/TEX Cache Throughput           %        93.23
+    L2 Cache Throughput               %        29.85
+    SM Active Cycles              cycle   774,017.64
+    Compute (SM) Throughput           %        92.10
+    ----------------------- ----------- ------------
+
+    INF   This workload is utilizing greater than 80.0% of the available compute or memory performance of this device.  
+          To further improve performance, work will likely need to be shifted from the most utilized to another unit.   
+          Start by analyzing workloads in the Compute Workload Analysis section.                                        
+
+    Section: Compute Workload Analysis
+    -------------------- ----------- ------------
+    Metric Name          Metric Unit Metric Value
+    -------------------- ----------- ------------
+    Executed Ipc Active   inst/cycle         1.78
+    Executed Ipc Elapsed  inst/cycle         1.76
+    Issue Slots Busy               %        44.03
+    Issued Ipc Active     inst/cycle         1.78
+    SM Busy                        %        44.03
+    -------------------- ----------- ------------
+
+    INF   ALU is the highest-utilized pipeline (24.1%) based on elapsed cycles in the workload, taking into account the 
+          rates of its different instructions. It executes integer and logic operations. It is well-utilized, but       
+          should not be a bottleneck. Based on the number of executed instructions, the highest utilized pipeline       
+          (92.1%) is LSU. It executes load/store memory operations. Comparing the two, the overall pipeline             
+          utilization appears to be caused by frequent, low-latency instructions. See the Profiling Guide               
+          (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-decoder) or hover over the          
+          pipeline name to understand the workloads handled by each pipeline. The Instruction Statistics section shows  
+          the mix of executed instructions for this workload. Check the Warp State Statistics section for which         
+          reasons cause warps to stall.                                                                                 
+
+    Section: Memory Workload Analysis
+    --------------------------------------- ----------- ------------
+    Metric Name                             Metric Unit Metric Value
+    --------------------------------------- ----------- ------------
+    Local Memory Spilling Requests                                 0
+    Local Memory Spilling Request Overhead            %            0
+    L2 Sector Promotion Misses                        %            0
+    Shared Memory Spilling Requests                                0
+    Shared Memory Spilling Request Overhead           %            0
+    Memory Throughput                           Gbyte/s        60.91
+    Mem Busy                                          %        46.28
+    Max Bandwidth                                     %        92.10
+    L1/TEX Hit Rate                                   %        82.85
+    L2 Persisting Size                            Mbyte        14.16
+    L2 Compression Success Rate                       %            0
+    L2 Compression Ratio                                           0
+    L2 Compression Input Sectors                 sector            0
+    L2 Hit Rate                                       %        96.33
+    Mem Pipes Busy                                    %        92.10
+    --------------------------------------- ----------- ------------
+
+    Section: Scheduler Statistics
+    ---------------------------- ----------- ------------
+    Metric Name                  Metric Unit Metric Value
+    ---------------------------- ----------- ------------
+    One or More Eligible                   %        44.58
+    Issued Warp Per Scheduler                        0.45
+    No Eligible                            %        55.42
+    Active Warps Per Scheduler          warp         7.79
+    Eligible Warps Per Scheduler        warp         0.75
+    ---------------------------- ----------- ------------
+
+    OPT   Est. Local Speedup: 7.9%                                                                                      
+          Every scheduler is capable of issuing one instruction per cycle, but for this workload each scheduler only    
+          issues an instruction every 2.2 cycles. This might leave hardware resources underutilized and may lead to     
+          less optimal performance. Out of the maximum of 12 warps per scheduler, this workload allocates an average    
+          of 7.79 active warps per scheduler, but only an average of 0.75 warps were eligible per cycle. Eligible       
+          warps are the subset of active warps that are ready to issue their next instruction. Every cycle with no      
+          eligible warp results in no instruction being issued and the issue slot remains unused. To increase the       
+          number of eligible warps, reduce the time the active warps are stalled by inspecting the top stall reasons    
+          on the Warp State Statistics and Source Counters sections.                                                    
+
+    Section: Warp State Statistics
+    ---------------------------------------- ----------- ------------
+    Metric Name                              Metric Unit Metric Value
+    ---------------------------------------- ----------- ------------
+    Warp Cycles Per Issued Instruction             cycle        17.47
+    Warp Cycles Per Executed Instruction           cycle        17.47
+    Avg. Active Threads Per Warp                                   32
+    Avg. Not Predicated Off Threads Per Warp                    30.53
+    ---------------------------------------- ----------- ------------
+
+    WRN   The optional metric smsp__pcsamp_sample_count could not be found. Collecting it as an additional metric could 
+          enable the rule to provide more guidance.                                                                     
+    ----- --------------------------------------------------------------------------------------------------------------
+    OPT   Est. Speedup: 7.9%                                                                                            
+          On average, each warp of this workload spends 6.3 cycles being stalled waiting for a scoreboard dependency on 
+          a L1TEX (local, global, surface, texture) operation. Find the instruction producing the data being waited     
+          upon to identify the culprit. To reduce the number of cycles waiting on L1TEX data accesses verify the        
+          memory access patterns are optimal for the target architecture, attempt to increase cache hit rates by        
+          increasing data locality (coalescing), or by changing the cache configuration. Consider moving frequently     
+          used data to shared memory. This stall type represents about 36.3% of the total average of 17.5 cycles        
+          between issuing two instructions.                                                                             
+    ----- --------------------------------------------------------------------------------------------------------------
+    OPT   Est. Speedup: 7.9%                                                                                            
+          On average, each warp of this workload spends 5.4 cycles being stalled waiting for a scoreboard dependency on 
+          a MIO (memory input/output) operation (not to L1TEX). The primary reason for a high number of stalls due to   
+          short scoreboards is typically memory operations to shared memory. Other reasons include frequent execution   
+          of special math instructions (e.g. MUFU) or dynamic branching (e.g. BRX, JMX). Consult the Memory Workload    
+          Analysis section to verify if there are shared memory operations and reduce bank conflicts, if reported.      
+          Assigning frequently accessed values to variables can assist the compiler in using low-latency registers      
+          instead of direct memory accesses. This stall type represents about 30.8% of the total average of 17.5        
+          cycles between issuing two instructions.                                                                      
+    ----- --------------------------------------------------------------------------------------------------------------
+    INF   Check the Warp Stall Sampling (All Samples) table for the top stall locations in your source based on         
+          sampling data. The Profiling Guide                                                                            
+          (https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#metrics-reference) provides more details    
+          on each stall reason.                                                                                         
+
+    Section: Instruction Statistics
+    ---------------------------------------- ----------- ------------
+    Metric Name                              Metric Unit Metric Value
+    ---------------------------------------- ----------- ------------
+    Local Memory Spilling Requests                  byte            0
+    Shared Memory Spilling Requests                 byte            0
+    Avg. Executed Instructions Per Scheduler        inst      344,888
+    Executed Instructions                           inst  176,582,656
+    Avg. Issued Instructions Per Scheduler          inst   344,953.56
+    Issued Instructions                             inst  176,616,224
+    ---------------------------------------- ----------- ------------
+
+    OPT   Est. Speedup: 5.79%                                                                                           
+          This workload executes 27262976 fused and 35651584 non-fused FP32 instructions. By converting pairs of        
+          non-fused instructions to their fused                                                                         
+          (https://docs.nvidia.com/cuda/floating-point/#cuda-and-floating-point), higher-throughput equivalent, the     
+          achieved FP32 performance could be increased by up to 28% (relative to its current performance).              
+
+    Section: Launch Statistics
+    -------------------------------- --------------- ---------------
+    Metric Name                          Metric Unit    Metric Value
+    -------------------------------- --------------- ---------------
+    Block Size                                                   128
+    Function Cache Configuration                     CachePreferNone
+    Grid Size                                                  1,024
+    Registers Per Thread             register/thread              47
+    Shared Memory Configuration Size           Kbyte           32.77
+    Driver Shared Memory Per Block       Kbyte/block            1.02
+    Dynamic Shared Memory Per Block       byte/block               0
+    Static Shared Memory Per Block        byte/block               0
+    # SMs                                         SM             128
+    Stack Size                                                 1,024
+    Threads                                   thread         131,072
+    # TPCs                                                        64
+    Enabled TPC IDs                                              all
+    Uses Green Context                                             0
+    Waves Per SM                                                0.80
+    -------------------------------- --------------- ---------------
+
+    Section: Occupancy
+    ------------------------------- ----------- ------------
+    Metric Name                     Metric Unit Metric Value
+    ------------------------------- ----------- ------------
+    Block Limit SM                        block           24
+    Block Limit Registers                 block           10
+    Block Limit Shared Mem                block           32
+    Block Limit Warps                     block           12
+    Theoretical Active Warps per SM        warp           40
+    Theoretical Occupancy                     %        83.33
+    Achieved Occupancy                        %        64.84
+    Achieved Active Warps Per SM           warp        31.12
+    ------------------------------- ----------- ------------
+
+    OPT   Est. Speedup: 7.9%                                                                                            
+          The difference between calculated theoretical (83.3%) and measured achieved occupancy (64.8%) can be the      
+          result of warp scheduling overheads or workload imbalances during the kernel execution. Load imbalances can   
+          occur between warps within a block as well as across blocks of the same kernel. See the CUDA Best Practices   
+          Guide (https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html#occupancy) for more details on     
+          optimizing occupancy.                                                                                         
+

@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# Bench the 4090 against the live llama-server.
+# Routing: busy check -> unload model -> llama-bench matrix -> e2e runs -> reload.
+# The reload always runs, even on failure, so the model is never left unloaded.
+set -euo pipefail
+
+SERVER_URL="${SERVER_URL:-http://127.0.0.1:8080}"
+MODEL_ID="unsloth/qwen3.8-27b-dflash"
+MODEL_ALIAS="qwen3.8-27b-dflash"
+JOURNAL_UNIT="llama-server"
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+LLAMA_BENCH="$ROOT/build/bin/llama-bench"
+M27="/home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf"
+M9="/home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.5-9B-GGUF/snapshots/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-IQ4_XS.gguf"
+
+OUT_DIR="$ROOT/bench-results/$(date +%Y%m%d-%H%M%S)"
+
+MODEL_FILE="$M27"
+RUN_E2E=1
+RUN_PROFILE=0
+FORCE=0
+MANAGE_SERVICE=0
+ROWS="P1 P2 D1 D2 D1L D2L"
+PROF_ROWS="P2 D2 D2L"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model)
+      case "$2" in
+        27b) MODEL_FILE="$M27" ;;
+        dev) MODEL_FILE="$M9"; RUN_E2E=0 ;;
+        *) echo "unknown model: $2" >&2; exit 2 ;;
+      esac
+      shift 2 ;;
+    --profile) RUN_PROFILE=1; shift ;;
+    --force) FORCE=1; shift ;;
+    # stop/start the llama-server user service around the bench instead of
+    # unloading via HTTP. Needed when the router autoloads the model on
+    # every request (an open web UI session re-loads it right after unload).
+    --manage-service) MANAGE_SERVICE=1; shift ;;
+    # run only the listed llama-bench rows (space separated, e.g. "D1L D2L")
+    --rows) ROWS="$2"; shift 2 ;;
+    # run only the listed nsys profile rows (default: all with --profile)
+    --profile-rows) PROF_ROWS="$2"; shift 2 ;;
+    # skip the E1/E2 production runs
+    --no-e2e) RUN_E2E=0; shift ;;
+    --out) OUT_DIR="$2"; shift 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+mkdir -p "$OUT_DIR"
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$OUT_DIR/log.txt"; }
+
+http() {
+  local timeout="${3:-10}"
+  # also accept the timeout as a numeric last argument
+  case "${!#}" in
+    ''|*[!0-9]*) ;;
+    *) timeout="${!#}" ;;
+  esac
+  curl -s --max-time "$timeout" "$@"
+}
+
+model_status() {
+  http -G "$SERVER_URL/models" | jq -r --arg id "$MODEL_ID" --arg al "$MODEL_ALIAS" \
+    '.data[] | select(.id == $id or ((.aliases // []) | index($al)) != null) | .status.value' | head -1
+}
+
+# Refuse to unload a model that is serving a request.
+# The top-level /slots proxies to the model child server (?model= is required).
+check_busy() {
+  local busy
+  busy="$(http "$SERVER_URL/slots?model=$MODEL_ALIAS" 2>/dev/null \
+    | jq '[.[] | select(.is_processing == true)] | length' 2>/dev/null)" || busy=""
+  if [ -z "$busy" ]; then
+    log "WARN: could not read /slots. $([ $FORCE -eq 1 ] && echo 'continuing (--force)' || echo 'refusing to continue; use --force to override')"
+    [ $FORCE -eq 1 ] || return 1
+    return 0
+  fi
+  if [ "$busy" != "0" ]; then
+    log "ERROR: $busy slot(s) are processing a request. Not unloading. Use --force to override."
+    return 1
+  fi
+  log "slots idle"
+}
+
+wait_status() { # wanted... timeout_s
+  local wanted=("${@:1:$#-1}") timeout="${!#}" t=0 s
+  while [ $t -lt "$timeout" ]; do
+    s="$(model_status)"
+    for w in "${wanted[@]}"; do
+      [ "$s" = "$w" ] && { echo "$s"; return 0; }
+    done
+    sleep 3; t=$((t + 3))
+  done
+  log "ERROR: model status '$s' not in ${wanted[*]} after ${timeout}s"
+  return 1
+}
+
+wait_server_up() {
+  local t=0
+  # the router does not serve until the preset models finish their first load and fit
+  while [ $t -lt 900 ]; do
+    if http -G "$SERVER_URL/models" 5 2>/dev/null | jq -e .data >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 3; t=$((t + 3))
+  done
+  log "ERROR: server did not come up after ${t}s"
+  return 1
+}
+
+svc_stop() {
+  systemctl --user stop "$JOURNAL_UNIT"
+  sleep 2
+  local mem
+  mem="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader 2>/dev/null || echo 'n/a')"
+  log "service stopped, gpu mem: $mem"
+}
+
+svc_start() {
+  systemctl --user start "$JOURNAL_UNIT"
+  wait_server_up
+}
+
+unload_model() {
+  if [ $MANAGE_SERVICE -eq 1 ]; then
+    log "stopping llama-server service (bench window)"
+    svc_stop
+    return 0
+  fi
+  local s
+  s="$(model_status)"
+  log "model status: $s"
+  case "$s" in
+    unloaded) return 0 ;;
+    loading) wait_status loaded unloaded 300 >/dev/null && s="$(model_status)" ;;
+    sleeping)
+      log "model sleeping, waking with a small request"
+      e2e_chat "wake" 8 512 >/dev/null
+      wait_status loaded 600 >/dev/null
+      s="$(model_status)" ;;
+  esac
+  if [ "$s" != "loaded" ]; then
+    log "model is not loaded ($s), nothing to unload"
+    return 0
+  fi
+  local res
+  # the unload waits for the model instance to exit and the VRAM to be freed,
+  # which takes longer than a minute on first use. the router proxies the
+  # request to the instance, so the connection can drop when the instance
+  # exits; the /models status below is the ground truth
+  if ! res="$(http -X POST "$SERVER_URL/models/unload" -H 'Content-Type: application/json' -d "{\"model\": \"$MODEL_ID\"}" 300)"; then
+    res="request failed (instance exited during unload)"
+  fi
+  log "unload response: $res"
+  wait_status unloaded 300 >/dev/null
+  log "model unloaded"
+}
+
+reload_model() {
+  if [ $MANAGE_SERVICE -eq 1 ]; then
+    if systemctl --user is-active --quiet "$JOURNAL_UNIT"; then
+      log "service already running"
+    else
+      log "starting llama-server service"
+      svc_start
+    fi
+    return 0
+  fi
+  local s
+  s="$(model_status || true)"
+  if [ "$s" = "loaded" ] || [ "$s" = "loading" ]; then
+    log "model already loaded"
+    return 0
+  fi
+  log "reloading model (lazy load via chat request)"
+  e2e_chat "reload" 1 2000 >/dev/null || true
+  wait_status loaded 900 >/dev/null
+  log "model reloaded"
+}
+
+# Send a chat request. $1 = label, $2 = generated tokens, $3 = target prompt tokens.
+# The prompt text tokenizes at ~2.3 chars per token, so calibrate the char
+# count against the model tokenizer instead of assuming a fixed ratio.
+# Distinct prefix per label so the prompt cache cannot carry work across runs.
+e2e_chat() {
+  local label="$1" ngen="$2" target="$3"
+  local pfile bfile cursor res chars count i
+  pfile="$(mktemp)"
+  bfile="$(mktemp)"
+  chars=$(( target * 3 ))
+  for i in 1 2 3; do
+    python3 - "$pfile" "$label" "$chars" <<'EOF'
+import sys
+path, label, chars = sys.argv[1], sys.argv[2], int(sys.argv[3])
+line = label + ":" + str(hash(label) % 99999) + " the quick brown fox jumps over the lazy dog 0123456789 "
+with open(path, "w") as f:
+    f.write((line * (chars // len(line) + 1))[:chars])
+EOF
+    count="$(cat "$pfile" | "$ROOT/build/bin/llama-tokenize" -m "$MODEL_FILE" --stdin --show-count 2>/dev/null | tail -1 | grep -o '[0-9]*')"
+    if [ -z "$count" ]; then
+      rm -f "$pfile" "$bfile"; log "ERROR: e2e $label: tokenize failed"; return 1
+    fi
+    log "e2e $label: prompt $count tokens (target $target)"
+    if [ "$count" -ge $(( target * 98 / 100 )) ] && [ "$count" -le $(( target * 102 / 100 )) ]; then
+      break
+    fi
+    chars=$(( chars * target / count ))
+  done
+  # the prompt can exceed the kernel limit for a single argv string (128 KB),
+  # so build the request body in a file and send it with -d @file
+  jq -n --arg m "$MODEL_ALIAS" --rawfile p "$pfile" --argjson n "$ngen" \
+    '{model: $m, messages: [{role: "user", content: $p}], max_tokens: $n, temperature: 0, stream: false}' > "$bfile"
+  cursor="$(journalctl --user -u "$JOURNAL_UNIT" -q --show-cursor 2>/dev/null | sed 's/.*cursor=//' || true)"
+  res="$(http -X POST "$SERVER_URL/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d "@$bfile" 3600)" || { rm -f "$pfile" "$bfile"; log "ERROR: e2e $label request failed"; return 1; }
+  rm -f "$pfile" "$bfile"
+  echo "$res" | jq '{prompt_tokens: .usage.prompt_tokens, completion_tokens: .usage.completion_tokens}' > "$OUT_DIR/e2e-$label.json" 2>/dev/null || true
+  # server logs the slot timing for this request
+  if [ -n "$cursor" ]; then
+    journalctl --user -u "$JOURNAL_UNIT" -q --after-cursor "$cursor" --no-pager 2>/dev/null \
+      | rg "prompt eval time|eval time|graphs reused|tg =" \
+      | tail -8 > "$OUT_DIR/e2e-$label-timing.txt" || true
+  fi
+  cat "$OUT_DIR/e2e-$label-timing.txt" 2>/dev/null
+}
+
+bench_llama_bench() {
+  local common=(-ngl 999 -b 2048 -ub 512 -ctk q8_0 -ctv q8_0 -fa on -t 16)
+  run() { # id, then llama-bench args
+    local id="$1"; shift
+    case " $ROWS " in *" $id "*) ;; *) return 0 ;; esac
+    log "llama-bench $id"
+    "$LLAMA_BENCH" -m "$MODEL_FILE" "${common[@]}" "$@" 2>&1 | tee -a "$OUT_DIR/$id.txt"
+  }
+  run P1 -p 4096 -n 1
+  run P2 -p 32768 -n 1
+  run D1 -p 32767 -n 1
+  run D2 -p 131071 -n 1
+  # -p/-n splits into pp + a tg1 at fresh near-empty context. Only -pg
+  # generates at the long context (specs/001-baseline.md).
+  run D1L -pg 32767,1
+  run D2L -pg 131071,1
+}
+
+bench_profile() {
+  command -v nsys >/dev/null || { log "nsys not found, skipping profiles"; return 0; }
+  local common=(-ngl 999 -b 2048 -ub 512 -ctk q8_0 -ctv q8_0 -fa on -t 16)
+  have() { case " $PROF_ROWS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+  if have P2; then
+    log "nsys profile P2"
+    nsys profile -o "$OUT_DIR/np2" -t cuda --force-overwrite true \
+      "$LLAMA_BENCH" -m "$MODEL_FILE" "${common[@]}" -p 32768 -n 1 >> "$OUT_DIR/np2.txt" 2>&1 || true
+  fi
+  if have D2; then
+    log "nsys profile D2"
+    nsys profile -o "$OUT_DIR/nd2" -t cuda --force-overwrite true \
+      "$LLAMA_BENCH" -m "$MODEL_FILE" "${common[@]}" -p 131071 -n 1 >> "$OUT_DIR/nd2.txt" 2>&1 || true
+  fi
+  if have D2L; then
+    log "nsys profile D2L (true 131k decode)"
+    nsys profile -o "$OUT_DIR/nd2l" -t cuda --force-overwrite true \
+      "$LLAMA_BENCH" -m "$MODEL_FILE" "${common[@]}" -pg 131071,1 --no-warmup >> "$OUT_DIR/nd2l.txt" 2>&1 || true
+  fi
+}
+
+trap 'log "EXIT: ensuring server is back"; reload_model || log "ERROR: server not back, start it manually"' EXIT
+
+log "bench start, out=$OUT_DIR"
+check_busy
+unload_model
+bench_llama_bench
+if [ $RUN_PROFILE -eq 1 ]; then
+  bench_profile
+fi
+if [ $RUN_E2E -eq 1 ]; then
+  if [ $MANAGE_SERVICE -eq 1 ]; then
+    log "starting llama-server service for e2e runs"
+    svc_start
+  fi
+  # E1 loads the model back (it was unloaded) and warms the CUDA graphs for E2.
+  # A failure here does not stop E2; the server journal keeps the timings.
+  e2e_chat "E1" 256 65536 || log "WARN: E1 request failed, continuing to E2"
+  e2e_chat "E2" 256 131072
+fi
+log "bench done"
