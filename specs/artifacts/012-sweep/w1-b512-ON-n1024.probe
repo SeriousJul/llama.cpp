@@ -1,0 +1,13 @@
+0.01.879.899 I graph-probe: pre capture free =   4057.3 MiB, captures = 0
+0.01.882.325 I graph-probe: post capture free =   4057.3 MiB, captures = 0
+0.01.885.347 I graph-probe: post instantiate free =   4041.3 MiB, captures = 1
+0.02.490.723 I graph-probe: pre capture free =   4019.3 MiB, captures = 1
+0.02.493.058 I graph-probe: post capture free =   4019.3 MiB, captures = 1
+0.06.235.244 I graph-probe: pre capture free =   4019.3 MiB, captures = 1
+0.06.237.250 I graph-probe: post capture free =   4019.3 MiB, captures = 1
+0.10.911.682 I graph-probe: pre capture free =   4019.3 MiB, captures = 1
+0.10.913.544 I graph-probe: post capture free =   4019.3 MiB, captures = 1
+0.15.587.354 I graph-probe: pre capture free =   4019.3 MiB, captures = 1
+0.15.589.199 I graph-probe: post capture free =   4019.3 MiB, captures = 1
+0.20.265.796 I graph-probe: pre capture free =   4019.3 MiB, captures = 1
+0.20.267.705 I graph-probe: post capture free =   4019.3 MiB, captures = 1

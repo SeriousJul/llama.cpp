@@ -1,0 +1,57 @@
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -4231,6 +4231,27 @@
+     return 0;
+ }
+ 
++// 012 probe: measure the VRAM a CUDA graph capture holds. GGML_CUDA_GRAPH_PROBE=1
++#ifdef USE_CUDA_GRAPH
++static std::atomic<int> ggml_cuda_graph_probe_captures = 0;
++
++static void ggml_cuda_graph_probe_log(const char * where, const void * key, int n_nodes) {
++    static const bool enable = getenv("GGML_CUDA_GRAPH_PROBE") != nullptr && std::atoi(getenv("GGML_CUDA_GRAPH_PROBE"));
++    if (!enable) {
++        return;
++    }
++    size_t probe_free = 0;
++    size_t probe_total = 0;
++    if (cudaMemGetInfo(&probe_free, &probe_total) != cudaSuccess) {
++        (void)cudaGetLastError();
++        return;
++    }
++    GGML_LOG_INFO("graph-probe: %s free = %8.1f MiB, captures = %d, key = %p, nodes = %d\n", where,
++                  probe_free / (1024.0*1024.0), ggml_cuda_graph_probe_captures.load(std::memory_order_relaxed),
++                  key, n_nodes);
++}
++#endif // USE_CUDA_GRAPH
++
+ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required, const void * graph_key) {
+     bool graph_evaluated_or_captured = false;
+ 
+@@ -4421,6 +4442,7 @@
+             }
+ 
+             CUDA_CHECK(cudaStreamEndCapture(cuda_ctx->stream(), &graph->graph));
++            ggml_cuda_graph_probe_log("post capture", graph_key, (int) cgraph->n_nodes);
+             graph_evaluated_or_captured = true; // CUDA graph has been captured
+ 
+             std::lock_guard<std::mutex> lock(ggml_cuda_lock);
+@@ -4436,6 +4458,8 @@
+         ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
+         if (graph->instance == nullptr) { // Create executable graph from captured graph.
+             CUDA_CHECK(cudaGraphInstantiate(&graph->instance, graph->graph, NULL, NULL, 0));
++            ggml_cuda_graph_probe_captures.fetch_add(1, std::memory_order_relaxed);
++            ggml_cuda_graph_probe_log("post instantiate", graph_key, (int) cgraph->n_nodes);
+         }
+         if (cuda_graph_update_required) { // Update graph executable
+             ggml_cuda_graph_update_executable(cuda_ctx, graph_key);
+@@ -4517,6 +4541,9 @@
+             ggml_cuda_lock_counter.fetch_add(1, std::memory_order_relaxed);
+         }
+ 
++#ifdef USE_CUDA_GRAPH
++        ggml_cuda_graph_probe_log("pre capture", graph_key, (int) cgraph->n_nodes);
++#endif
+         CUDA_CHECK(cudaStreamBeginCapture(cuda_ctx->stream(), cudaStreamCaptureModeRelaxed));
+     }
+ 

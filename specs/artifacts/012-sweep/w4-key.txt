@@ -1,0 +1,52 @@
+### w4-pp-only.log
+0.00.567.419 I load_tensors:        CUDA0 model buffer size = 12726.35 MiB
+0.01.793.736 I llama_kv_cache:      CUDA0 KV buffer size =  5312.50 MiB
+0.01.800.225 I llama_memory_recurrent:      CUDA0 RS buffer size =   149.62 MiB
+0.01.832.195 I sched_reserve:      CUDA0 compute buffer size =   861.53 MiB
+0.01.832.196 I sched_reserve:  CUDA_Host compute buffer size =   176.53 MiB
+0.01.885.814 I graph-probe: pre capture free =   4057.3 MiB, captures = 0, key = 0x7d7937503980, nodes = 3942
+0.01.888.186 I graph-probe: post capture free =   4057.3 MiB, captures = 0, key = 0x7d7937503980, nodes = 3942
+0.01.891.601 I graph-probe: post instantiate free =   4041.3 MiB, captures = 1, key = 0x7d7937503980, nodes = 3942
+0.02.464.272 I slot print_timing: id  0 | task 0 | prompt eval time =     476.02 ms /  1331 tokens (    0.36 ms per token,  2796.07 tokens per second)
+0.02.464.273 I slot print_timing: id  0 | task 0 |        eval time =       0.00 ms /     1 tokens (    0.00 ms per token,     0.00 tokens per second)
+0.02.464.276 I slot print_timing: id  0 | task 0 |    graphs reused =          1
+0.02.465.725 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+0.02.465.727 I common_memory_breakdown_print: |   - CUDA0 (RTX 4090)   | 24084 = 4021 + (19050 = 12726 +    5462 +     861) +        1012 |
+0.02.465.783 D ~llama_context:      CUDA0 compute buffer size is 861.5315 MiB, matches expectation of 861.5315 MiB
+0.02.465.785 D ~llama_context:  CUDA_Host compute buffer size is 176.5333 MiB, matches expectation of 176.5333 MiB
+### w4-pp-tg-long.log
+0.00.562.023 I load_tensors:        CUDA0 model buffer size = 12726.35 MiB
+0.01.793.072 I llama_kv_cache:      CUDA0 KV buffer size =  5312.50 MiB
+0.01.799.502 I llama_memory_recurrent:      CUDA0 RS buffer size =   149.62 MiB
+0.01.830.885 I sched_reserve:      CUDA0 compute buffer size =   861.53 MiB
+0.01.830.887 I sched_reserve:  CUDA_Host compute buffer size =   176.53 MiB
+0.01.884.987 I graph-probe: pre capture free =   4057.3 MiB, captures = 0, key = 0x781057503980, nodes = 3942
+0.01.887.262 I graph-probe: post capture free =   4057.3 MiB, captures = 0, key = 0x781057503980, nodes = 3942
+0.01.890.114 I graph-probe: post instantiate free =   4041.3 MiB, captures = 1, key = 0x781057503980, nodes = 3942
+0.02.485.017 I graph-probe: pre capture free =   4019.3 MiB, captures = 1, key = 0x781057503980, nodes = 3942
+0.02.487.868 I graph-probe: post capture free =   4019.3 MiB, captures = 1, key = 0x781057503980, nodes = 3942
+0.03.618.682 I slot print_timing: id  0 | task 0 | prompt eval time =     474.07 ms /  1331 tokens (    0.36 ms per token,  2807.60 tokens per second)
+0.03.618.682 I slot print_timing: id  0 | task 0 |        eval time =    1154.98 ms /    64 tokens (   18.33 ms per token,    54.55 tokens per second)
+0.03.618.686 I slot print_timing: id  0 | task 0 |    graphs reused =         63
+0.03.620.392 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+0.03.620.394 I common_memory_breakdown_print: |   - CUDA0 (RTX 4090)   | 24084 = 4019 + (19050 = 12726 +    5462 +     861) +        1014 |
+0.03.620.464 D ~llama_context:      CUDA0 compute buffer size is 861.5315 MiB, matches expectation of 861.5315 MiB
+0.03.620.466 D ~llama_context:  CUDA_Host compute buffer size is 176.5333 MiB, matches expectation of 176.5333 MiB
+### w4-tg-only.log
+0.00.542.309 I load_tensors:        CUDA0 model buffer size = 12726.35 MiB
+0.01.770.230 I llama_kv_cache:      CUDA0 KV buffer size =  5312.50 MiB
+0.01.776.737 I llama_memory_recurrent:      CUDA0 RS buffer size =   149.62 MiB
+0.01.808.123 I sched_reserve:      CUDA0 compute buffer size =   861.53 MiB
+0.01.808.124 I sched_reserve:  CUDA_Host compute buffer size =   176.53 MiB
+0.01.861.088 I graph-probe: pre capture free =   4057.3 MiB, captures = 0, key = 0x7c65b1a8e980, nodes = 3942
+0.01.863.322 I graph-probe: post capture free =   4057.3 MiB, captures = 0, key = 0x7c65b1a8e980, nodes = 3942
+0.01.866.176 I graph-probe: post instantiate free =   4041.3 MiB, captures = 1, key = 0x7c65b1a8e980, nodes = 3942
+0.02.028.730 I graph-probe: pre capture free =   4041.3 MiB, captures = 1, key = 0x7c65b1a8e980, nodes = 3942
+0.02.031.038 I graph-probe: post capture free =   4041.3 MiB, captures = 1, key = 0x7c65b1a8e980, nodes = 3942
+0.02.143.817 I slot print_timing: id  0 | task 0 | prompt eval time =      21.92 ms /     1 tokens (   21.92 ms per token,    45.63 tokens per second)
+0.02.143.818 I slot print_timing: id  0 | task 0 |        eval time =     135.49 ms /     8 tokens (   19.36 ms per token,    51.66 tokens per second)
+0.02.143.822 I slot print_timing: id  0 | task 0 |    graphs reused =          7
+0.02.144.952 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+0.02.144.954 I common_memory_breakdown_print: |   - CUDA0 (RTX 4090)   | 24084 = 4041 + (19050 = 12726 +    5462 +     861) +         992 |
+0.02.145.017 D ~llama_context:      CUDA0 compute buffer size is 861.5315 MiB, matches expectation of 861.5315 MiB
+0.02.145.019 D ~llama_context:  CUDA_Host compute buffer size is 176.5333 MiB, matches expectation of 176.5333 MiB

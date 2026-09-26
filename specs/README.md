@@ -21,7 +21,7 @@ closed, with the code kept as a patch under specs/artifacts/.
 | 009-mmq-j-occupancy.md | J as the occupancy knob for the prefill GEMM | done (2026-09-24, verdict: no change): occupancy was reached and cost -20.9% on pp65536; every non-instruction-count route into MMQ is now measured and lost |
 | 010-mmq-scale-correction-epilogue.md | MMQ shared-memory traffic and the I = 128 assumption | done (2026-09-24, verdict: no change): six kernel routes into MMQ all closed; the epilogue cost is set by scale granularity, a format decision, not a kernel one |
 | 011-uvm-prefetch-hints.md | `cudaMemAdvise` / `cudaMemPrefetchAsync` on the UVM path | active (baseline 2026-09-26): managed == cudaMalloc while the working set fits (0.3% at q8_0 262K); at ~3.4 GiB spill decode falls 31.1 -> 0.6 t/s. The hints target that cliff |
-| 012-phase-arena-workspace-reuse.md | Return prefill graphs and pp workspace to the decode KV budget | measured 2026-09-26, verdict pending: the pp-shape workspace is only 861.53 - 628.96 = 233 MiB (~7K tokens); graph captures not yet isolated. Fold into 013 or close |
+| 012-phase-arena-workspace-reuse.md | Return prefill graphs and pp workspace to the decode KV budget | done (2026-09-26, verdict: no change): graphs cost 16 MiB and pp and decode never hold two at once - one `llama_context` reuses one cgraph, so both phases key on the same `nodes[0]` and alternate through one graph slot, re-capturing in place for 0 MiB. The band is a fixed ~976 MiB init floor, 391 MiB of it the CUDA context. Ceiling ~36 MiB, not the fork's 2304 MiB |
 | 013-pipelined-kv-streaming.md | Block-granular, lookahead KV staging beyond VRAM | deferred, gate zero answered: q8_0 ctx_max ~285K > production need 160K; re-open only for f16 >150K, q8 >280K, or a second co-located model |
 
 Each spec states: measured problem, design, acceptance criteria, test method.
@@ -31,7 +31,10 @@ Each spec states: measured problem, design, acceptance criteria, test method.
 long-context on small-VRAM CUDA boxes). None of them copies code from that fork. 011
 addresses the missing page hints in our UVM path, 012 the phase-idle bytes its arena
 reclaims, 013 the lookahead streaming its ring adds over our `-nkvo` scheduler path. All three are
-gated: no patch until each file carries its own baseline, per the standing rule.
+gated: no patch until each file carries its own baseline, per the standing rule. 011 and 012
+are now closed by measurement; 012's `cudaMemGetInfo` probe is what tells 013 that a pool
+flush really does return bytes to the driver (0 MiB sticky after a 12 GiB round trip), which is
+the mechanism 013 would need if its gate ever reopens.
 
 `specs/artifacts/` holds the throwaway validators, the ncu text dumps and the paired
 A/B raw data the numbers in these files come from. They are not part of the build and
@@ -362,3 +365,27 @@ the cols=8 vec kernel is 2x slower. See the spec.
   FP8 330, INT8 660. A design premised on "FP8 is 2x INT8" is wrong
   by 2x in the bad direction. Derive headroom from measured effective
   throughput (001's mul_mat_q timings) instead.
+- **An unattributed number is not a ceiling.** 012 read `unaccounted`
+  (924-994 MiB) for two days as a possible reclaim. It is a fixed
+  per-process init cost: 976 MiB with 19.0 GiB of buffers, 976 MiB with
+  13.3 GiB, 931 MiB with `-ngl 0`, 391 MiB of it the CUDA context and
+  ~8 MiB per cuBLAS handle (probe `specs/artifacts/012-cuda-floor.cu`).
+  The cheapest attribution test exists already: run the same binary and
+  send it no request at all.
+- **Read the whole tree before declaring a switch missing.** 012's
+  finding 3 claimed "there is no user-facing switch to disable CUDA graph
+  capture". `GGML_CUDA_DISABLE_GRAPHS` is read in
+  `ggml_cuda_graph::is_enabled()` (`common.cuh:1288`, consulted at
+  `ggml-cuda.cu:4489` and `:4508`). The grep that missed it looked only in
+  `ggml-cuda.cu`; the switch lives in the header next to the struct.
+- **`graphs reused` is not a CUDA graph counter.** It is
+  `llama_context::n_reused` (`llama-context.cpp:1415`), bumped whenever the
+  previous ggml cgraph object is reused. It printed 1019 in a run with CUDA
+  graphs disabled by env. Proof that the capture path ran must come from the
+  capture site, or from the memory delta it causes.
+- **A capture log without the graph key cannot say which phase captured.**
+  The pp graph and the tg graph of the same model have the same node count
+  (3942 on the 27B), so 012 window 4 read the same either way; printing
+  `graph_key` alongside it is what turned "the decode graph owns the 16 MiB"
+  from an inference into a measurement, and it showed the inference was wrong
+  - pp and tg share one slot.

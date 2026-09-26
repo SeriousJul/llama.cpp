@@ -1,0 +1,41 @@
+### w2-idle-c160k.log
+0.00.572.941 I load_tensors:        CUDA0 model buffer size = 12726.35 MiB
+0.01.805.478 I llama_kv_cache:      CUDA0 KV buffer size =  5312.50 MiB
+0.01.811.917 I llama_memory_recurrent:      CUDA0 RS buffer size =   149.62 MiB
+0.01.844.390 I sched_reserve:      CUDA0 compute buffer size =   861.53 MiB
+0.01.844.391 I sched_reserve:  CUDA_Host compute buffer size =   176.53 MiB
+0.07.000.273 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+0.07.000.274 I common_memory_breakdown_print: |   - CUDA0 (RTX 4090)   | 24084 = 4057 + (19050 = 12726 +    5462 +     861) +         976 |
+0.07.000.348 D ~llama_context:      CUDA0 compute buffer size is 861.5315 MiB, matches expectation of 861.5315 MiB
+0.07.000.351 D ~llama_context:  CUDA_Host compute buffer size is 176.5333 MiB, matches expectation of 176.5333 MiB
+### w2-idle-c8k.log
+0.00.566.513 I load_tensors:        CUDA0 model buffer size = 12726.35 MiB
+0.01.792.001 I llama_kv_cache:      CUDA0 KV buffer size =   272.00 MiB
+0.01.792.619 I llama_memory_recurrent:      CUDA0 RS buffer size =   149.62 MiB
+0.01.802.952 I sched_reserve:      CUDA0 compute buffer size =   130.28 MiB
+0.01.802.953 I sched_reserve:  CUDA_Host compute buffer size =    28.28 MiB
+0.06.998.205 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+0.06.998.206 I common_memory_breakdown_print: |   - CUDA0 (RTX 4090)   | 24084 = 9829 + (13278 = 12726 +     421 +     130) +         976 |
+0.06.998.278 D ~llama_context:      CUDA0 compute buffer size is 130.2815 MiB, matches expectation of 130.2815 MiB
+0.06.998.279 D ~llama_context:  CUDA_Host compute buffer size is  28.2833 MiB, matches expectation of  28.2833 MiB
+### w2-ngl0-c160k.log
+0.01.199.186 I llama_memory_recurrent:        CPU RS buffer size =   149.62 MiB
+0.01.233.889 I sched_reserve:      CUDA0 compute buffer size =  1231.82 MiB
+0.01.233.891 I sched_reserve:  CUDA_Host compute buffer size =   186.65 MiB
+0.06.997.922 I common_memory_breakdown_print: | memory breakdown [MiB] | total    free     self   model   context   compute    unaccounted |
+0.06.997.924 I common_memory_breakdown_print: |   - CUDA0 (RTX 4090)   | 24084 = 21921 + ( 1231 =     0 +       0 +    1231) +         931 |
+0.06.997.998 D ~llama_context:      CUDA0 compute buffer size is 1231.8210 MiB, matches expectation of 1231.8210 MiB
+0.06.998.000 D ~llama_context:  CUDA_Host compute buffer size is 186.6485 MiB, matches expectation of 186.6485 MiB
+### w2-pp-only.log
+0.00.561.599 I load_tensors:        CUDA0 model buffer size = 12726.35 MiB
+0.01.788.344 I llama_kv_cache:      CUDA0 KV buffer size =  5312.50 MiB
+0.01.794.783 I llama_memory_recurrent:      CUDA0 RS buffer size =   149.62 MiB
+0.01.826.438 I sched_reserve:      CUDA0 compute buffer size =   861.53 MiB
+0.01.826.439 I sched_reserve:  CUDA_Host compute buffer size =   176.53 MiB
+0.02.463.564 I slot print_timing: id  0 | task 0 | prompt eval time =     473.88 ms /  1331 tokens (    0.36 ms per token,  2808.70 tokens per second)
+0.02.463.565 I slot print_timing: id  0 | task 0 |        eval time =       0.00 ms /     1 tokens (    0.00 ms per token,     0.00 tokens per second)
+0.02.463.567 I slot print_timing: id  0 | task 0 |    graphs reused =          1
+0.04.477.706 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free     self   model   context   compute    unaccounted |
+0.04.477.709 I common_memory_breakdown_print: |   - CUDA0 (RTX 4090)   | 24084 = 4037 + (19050 = 12726 +    5462 +     861) +         996 |
+0.04.477.803 D ~llama_context:      CUDA0 compute buffer size is 861.5315 MiB, matches expectation of 861.5315 MiB
+0.04.477.804 D ~llama_context:  CUDA_Host compute buffer size is 176.5333 MiB, matches expectation of 176.5333 MiB

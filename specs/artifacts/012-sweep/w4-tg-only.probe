@@ -1,0 +1,5 @@
+0.01.861.088 I graph-probe: pre capture free =   4057.3 MiB, captures = 0, key = 0x7c65b1a8e980, nodes = 3942
+0.01.863.322 I graph-probe: post capture free =   4057.3 MiB, captures = 0, key = 0x7c65b1a8e980, nodes = 3942
+0.01.866.176 I graph-probe: post instantiate free =   4041.3 MiB, captures = 1, key = 0x7c65b1a8e980, nodes = 3942
+0.02.028.730 I graph-probe: pre capture free =   4041.3 MiB, captures = 1, key = 0x7c65b1a8e980, nodes = 3942
+0.02.031.038 I graph-probe: post capture free =   4041.3 MiB, captures = 1, key = 0x7c65b1a8e980, nodes = 3942
