@@ -1,9 +1,10 @@
 # 008: Split DV across CTAs to buy attention occupancy (sm89)
 
-Status: active (both gates measured 2026-09-26: criterion 1 fails as frozen, the accumulator
-turned out not to be the register cost, and the two reachable occupancy steps each cost more than
-the design allowed for. Decision pending. See "Gates, measured 2026-09-26")
-Label: ready-for-agent
+Status: done (2026-09-26, verdict: no change). All three gates close it, on measurement and without
+a benchmark run: criterion 1 fails on registers, the accumulator turned out not to be the register
+cost, and the one spill-free occupancy step costs 3x the KV bytes against an L2 already at 63%.
+See "Gates, measured 2026-09-26"
+Label: research
 Depends on: 005 (closed as no change; it produced the measurements this spec is built on), 001
 Scope: sm89, DK = DV = 256, prefill and verify-batch shapes.
 
@@ -94,12 +95,15 @@ is `nwarps * cols_per_warp * (nbatch_combine + 4) * 4`, which grows with `nwarps
 
 ### What the two gates leave
 
-1. **Criterion 1 fails as frozen, and shared memory is not why.** At the production tile with
+1. **Criterion 1 fails as frozen, and shared memory is not the sole reason.** At the production tile with
    half DV and 256 threads there is room for 2 CTAs (34816 B of the 102400 B per SM), which is the
    16 warps the design was after. The register file refuses: 192 wanted against a 128 budget, paid
-   for in local memory (STACK 16 -> 112). My first read of this section claimed the opposite, that
-   Q pinned the CTA and 8 warps was the ceiling; that was arithmetic on one term of
-   `nbytes_shared_total` while the max() had other terms, and the device API says otherwise.
+   for in local memory (STACK 16 -> 112, and the shipping kernel spills zero requests today, so that
+   is all new traffic). My first read of this section claimed the opposite, that Q pinned the CTA and
+   8 warps was the ceiling; that was arithmetic on one term of `nbytes_shared_total` while the max()
+   had other terms, and the device API says otherwise. Note the shipping row is limited by registers
+   *and* shared memory at 2 CTAs at the same time (both Block Limits read 2 in the ncu dump below);
+   the 256-thread design is the one that escapes the shared-memory limit while still failing registers.
 2. **The spec's headline gain, 16 warps, is not reachable cleanly by any shape.** The candidates
    that could hold it all pay in stack: half DV at 256 threads and occupancy 2 (STACK 112 at
    ncols=64, 176 at ncols=32), quarter DV at 256 threads and occupancy 2 (STACK 48), and 4 CTAs at
@@ -117,8 +121,8 @@ is `nwarps * cols_per_warp * (nbatch_combine + 4) * 4`, which grows with `nwarps
    occupancy 3 (budget 170) - nvcc leaves the count alone rather than squeezing it, so "over budget"
    here means the shape cannot hold those warps. Halving the tile is worth 24 registers and the
    170 budget is 61 away. The occupancy cannot be bought from the table.
-6. **What the surviving shapes cost, in L2 traffic.** Splitting DV by n makes n CTAs read the same
-   K while each reads only its own V slice, so per KV chunk the bytes go from `K + V` to
+6. **What the surviving shapes cost, in L2 traffic.** Splitting DV n ways makes n CTAs read the same
+   K while each reads only its own `V/n` slice, so per KV chunk the bytes go from `K + V` to
    `n*K + V`; halving the query tile multiplies that by 2 again.
 
    | shape | K reads | V reads | total KV bytes vs today | L2 at 63.0% x that |
@@ -132,6 +136,88 @@ is `nwarps * cols_per_warp * (nbatch_combine + 4) * 4`, which grows with `nwarps
    `flash_attn_ext_f16` call (L2 throughput plus the Block Limit columns) would settle it in one
    run. But it points the same way as the floor in item 4 and as 009, where reaching occupancy on
    MMQ measured -20.9%: on this card these kernels are not short of warps.
+
+### Baseline occupancy and bandwidth, from the archived 005 ncu dump
+
+The block limits this spec needs were already captured in `specs/artifacts/tmp-ncu005.txt` on the
+shipping row `flash_attn_ext_f16<256, 256, 16, 4, 0, 0, 0>`, grid (256,1,1) x block (32,4,1), CC 8.9.
+No new profiling run was needed, and two of 008's assumptions change under it.
+
+    Registers Per Thread                     255
+    Shared Memory Configuration Size       102.40 Kbyte
+    Driver Shared Memory Per Block           1.02 Kbyte/block
+    Dynamic Shared Memory Per Block         34.05 Kbyte/block   <- confirms the 33792 B computed above
+    Waves Per SM                                 1
+    Block Limit Registers                        2
+    Block Limit Shared Mem                       2
+    Block Limit Warps                           12
+    Theoretical Active Warps per SM              8   (16.67% occupancy)
+    Achieved Active Warps per SM               6.54   (13.63%)
+    Active Warps Per Scheduler                1.64
+    Local Memory Spilling Requests               0
+    Mem Busy                                  63.00 %
+    Max Bandwidth                             62.82 %
+    L2 Cache Throughput                       63.00 %
+    L2 Hit Rate                               95.72 %
+    DRAM Throughput                           14.62 %
+    Duration                                   2.73 ms
+
+1. **Both limits bind at 2 today.** Block Limit Registers 2 and Block Limit Shared Mem 2, so the
+   shipping shape is pinned by the register file and by shared memory at the same time. ncu's own
+   wording: "theoretical occupancy (16.7%) is limited by the number of required registers, and the
+   required amount of shared memory".
+2. **`launch_fattn` launches exactly one wave.** Under stream-K the grid is
+   `min(max_blocks_per_sm * nsm, work)`, which is why Waves Per SM is 1 and the grid is 256 = 2 x 128
+   SMs. So raising CTAs per SM does convert to real concurrency: at 3 CTAs the launcher would run 384
+   CTAs over the same total work, with a shorter KV range each. The occupancy premise is structurally
+   sound; the gates are what it has to pass to get there.
+3. **Today the kernel spills nothing.** Local Memory Spilling Requests 0, with a 16 B frame per
+   thread. So the frame column in the register tables is not traffic today, and it measures the size
+   of the hazard rather than the cost: the frozen design's STACK 112 on a 128-thread CTA is 112 x 128
+   x 256 = ~3.5 MB of live state parked in local memory per wave, in a kernel that currently parks
+   none. Whether it is actually touched in the inner loop is exactly what that same ncu metric would
+   say for a built variant.
+4. **The bandwidth price of both surviving shapes does not fit.** At DKQ = DV = 256 the two streams
+   are equal width, so splitting DV n ways takes a query tile from `K + V` to `n*K + V`, which is
+   `(n+1)/2`. Halving the query tile is a separate 2x, because each tile re-reads the KV it attends
+   over. Measured against the 63.00% L2 duty cycle, and giving each shape the generous best case
+   where duration falls exactly in proportion to the warps it adds:
+
+   | shape | per tile | tiles | traffic vs today | warps | best-case duration | duty needed |
+   |---|---|---|---|---|---|---|
+   | ships today: ncols=64, full DV | K + V | 1x | 1.0 | 8 | 1.00 | 63.0% |
+   | 12 warps: ncols=32, DV/2 | 2K + V | 2x | 3.0 | 12 | 0.67 | 282% |
+   | 16 warps: ncols=64, DV/4 | 4K + V | 1x | 2.5 | 16 | 0.50 | 315% |
+
+   Both need more than twice the L2 the kernel is already spending, and the credit for extra warps is
+   generous: 009 measured what reaching occupancy actually bought on MMQ at -20.9%, and ncu's own
+   read of this kernel is "Compute and Memory are well-balanced: to reduce runtime, both computation
+   and memory traffic must be reduced". Adding warps reduces neither.
+
+### Verdict
+
+Closed as no change, without writing the split. Three independent reasons, any one of which is
+enough:
+
+- **Criterion 1.** The frozen shape needs 192 registers where 2 CTAs of 256 threads allow 128, and
+  launch bounds do not produce a fit, they produce a 96-byte-per-thread frame on a kernel that
+  spills nothing today.
+- **The mechanism.** The accumulator is not the register cost. There is a ~168 per-thread floor
+  independent of DV, so the split removes the smallest part of the problem and the floor decides
+  which occupancy is reachable. The design's central table ("128/thread -> 32/thread") is measured
+  false.
+- **The price.** The only spill-free step above today's 8 warps is 12, and it needs 3.0x the KV
+  bytes against a memory system ncu describes as "well-balanced", where the fix for both is fewer
+  bytes and less compute, not more warps.
+
+What a future attention spec should take from this file: the shipping row is limited by registers
+and shared memory *both* at 2 CTAs (ncu Block Limits 2 and 2), `launch_fattn` runs exactly one wave,
+and 34.05 KB of dynamic shared memory per block is already committed at DKQ=DV=256, so any shape
+that wants 3 CTAs has to shrink the Q tile, the KV tile and the combine tile together, not one of
+them. Splitting DV further does not open a door either: quarter DV compiles, and it is clean only
+where half DV was already clean (ncols=32 at occupancy 3 measures 168 registers and STACK 16 for
+both), while the shapes that use the smaller slice to reach 128 registers pay a 48 to 160 byte
+frame.
 
 ### stream-K cannot be declined on sm89
 
