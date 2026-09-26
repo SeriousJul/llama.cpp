@@ -1,9 +1,155 @@
 # 008: Split DV across CTAs to buy attention occupancy (sm89)
 
-Status: active (ready-for-agent)
+Status: active (both gates measured 2026-09-26: criterion 1 fails as frozen, the accumulator
+turned out not to be the register cost, and the two reachable occupancy steps each cost more than
+the design allowed for. Decision pending. See "Gates, measured 2026-09-26")
 Label: ready-for-agent
 Depends on: 005 (closed as no change; it produced the measurements this spec is built on), 001
 Scope: sm89, DK = DV = 256, prefill and verify-batch shapes.
+
+## Gates, measured 2026-09-26
+
+Two throwaway probes, no benchmarking and no kernel change. Both restore the tree when they
+finish, and the register one is re-runnable per shape:
+`bash specs/artifacts/008-reg-gate.sh [DV] [nthreads] [occupancy] [ncols ...]`.
+
+### Registers
+
+`008-reg-gate.sh [DV] [nthreads] [occupancy] [ncols ...]` inserts probe rows for a DKQ=256 kernel
+owning a slice of DV (the register shape of a split CTA) into `fattn-mma-f16.cuh`, generates a
+matching instantiation into /tmp (kept out of the tree so it cannot drift from the rows it tests),
+compiles it with build-008's own nvcc flags, and reads `cuobjdump -res-usage`. Nothing links and
+nothing runs, so each cell costs one file compile. The archived output is `008-reg-gate.txt`; read
+occupancy 1 as "what the kernel wants" (the budget cannot bind there) and occupancy >1 as "what
+launch bounds force", with STACK as where the difference goes.
+
+| registers per thread | budget | half DV, ncols=64 | half DV, ncols=32 | full DV, ncols=64 | full DV, ncols=32 |
+|---|---|---|---|---|---|
+| 128 threads, occupancy 2 | 256 | 219, STACK 16 | 193, STACK 16 | 255, STACK 16 (ships) | 231, STACK 16 |
+| 128 threads, occupancy 3 | **170** | 168, **STACK 64** | **168, STACK 16** | 255, over | 231, over |
+| 128 threads, occupancy 4 | 128 | 128, **STACK 272** | 128, **STACK 128** | - | - |
+| 256 threads, occupancy 1 | 256 | 192, STACK 16 | 196, STACK 16 | - | - |
+| 256 threads, occupancy 2 | **128** | 128, **STACK 112** | 128, **STACK 176** | 255, over | 231, over |
+
+Criterion 1 fails for the design as frozen: a half-DV CTA at the production tile wants **192**
+registers at 256 threads, and the budget for 2 CTAs is 128. Forcing it pays in local memory,
+STACK 16 -> 112, which is the same trade that measured -23.9% on the `nthreads` 128 -> 256 run.
+"Over budget" on a full-DV row means nvcc left the count alone rather than squeezing it, so the
+shape cannot hold those warps; the half-DV rows do get squeezed, and STACK is the bill.
+
+### The accumulator is not the register cost
+
+Splitting further was the obvious next question, so it was measured. One config row and one
+instantiation per compile, because two rows on the same `(DKQ, DV, ncols)` key make the first one
+win silently - that is how an earlier version of this probe reported registers for a shape it never
+compiled. `008-reg-gate.txt` is the whole matrix.
+
+| registers per thread, 128 threads | budget 256 (occ 2) | budget 170 (occ 3) | budget 128 (occ 4) |
+|---|---|---|---|
+| full DV, ncols=64 (ships) | 255, STACK 16 | over | - |
+| half DV, ncols=64 | 219, STACK 16 | 168, STACK 64 | 128, STACK 272 |
+| quarter DV, ncols=64 | 187, STACK 16 | 168, STACK 32 | - |
+| full DV, ncols=32 | 231, STACK 16 | over | - |
+| half DV, ncols=32 | 193, STACK 16 | **168, STACK 16** | 128, STACK 128 |
+| quarter DV, ncols=32 | 178, STACK 16 | **168, STACK 16** | - |
+
+Two things follow.
+
+1. **The accumulator is roughly a third of the production row, not half of it.** Quartering DV
+   (128 -> 32 columns per CTA, nominally 128 -> 32 registers of accumulator) moves the measured
+   count 255 -> 187 at ncols=64 and 231 -> 178 at ncols=32. At ncols=32 a further quartering buys
+   nothing at all: occupancy 3 measures 168 for half DV and 168 for quarter DV. There is a
+   per-thread floor near 168 that does not contain the accumulator, so "why the accumulator is the
+   register cost" is measured false, and a plan that buys occupancy by shrinking the accumulator
+   hits that floor before it hits its target.
+2. **The floor sits between exactly two occupancy budgets.** 168 clears 170 (3 CTAs of 4 warps)
+   with STACK 16 and cannot clear 128 (4 CTAs of 4 warps, or 2 CTAs of 8), where the compiler pays
+   the difference in stack. So the register side allows one step up from today's 8 warps, and which
+   CTA counts shared memory will actually grant is the next section.
+
+So the reachable ceiling for this whole idea is 8 warps -> 12 warps, and getting there costs the
+tile narrowing as well as the split.
+
+### Shared memory
+
+`008-smem-occupancy.cu` asks the other half: does shared memory even allow the CTA count a shape
+wants? It replays the launcher's own `nbytes_shared_total` expression and calls the same
+`cudaOccupancyMaxActiveBlocksPerMultiprocessor` that `launch_fattn` calls, with a dummy kernel
+whose only relevant property is its thread count, so the register file cannot interfere. It exists
+because an arithmetic pass over that same expression got these numbers wrong in the permissive
+direction: the Q term is `ncols * (DKQ/2 + 4) * 4` and does not contain DV, but the combine term
+is `nwarps * cols_per_warp * (nbatch_combine + 4) * 4`, which grows with `nwarps` and shrinks with
+`nbatch_combine`, and at 8 warps it is the binding term, not Q.
+
+    device: 102400 B shared per SM, 101376 B max per CTA, 65536 registers per SM, 128 SMs
+    ships        ncols=64 DV=256 n128 nstages=2   33792 B/CTA -> 2 CTA/SM =  8 warps (budget 256)
+    DV split     ncols=64 DV=128 n256 nstages=2   34816 B/CTA -> 2 CTA/SM = 16 warps (budget 128)
+    DV split     ncols=64 DV=128 n256 nstages=1   34816 B/CTA -> 2 CTA/SM = 16 warps (budget 128)
+    DV split     ncols=64 DV=128 n128 nstages=2   33792 B/CTA -> 2 CTA/SM =  8 warps (budget 256)
+    DV split nmw ncols=32 DV=128 n128 nstages=2   25216 B/CTA -> 3 CTA/SM = 12 warps (budget 170)
+    DV split nmw ncols=32 DV=128 n128 nstages=1   17408 B/CTA -> 5 CTA/SM = 20 warps (budget 102)
+    DV quarter   ncols=64 DV=64  n256 nstages=2   33792 B/CTA -> 2 CTA/SM = 16 warps (budget 128)
+    narrow       ncols=32 DV=256 n128 nstages=1   33792 B/CTA -> 2 CTA/SM =  8 warps (budget 256)
+    narrow       ncols=16 DV=256 n128 nstages=1   33792 B/CTA -> 2 CTA/SM =  8 warps (budget 256)
+
+### What the two gates leave
+
+1. **Criterion 1 fails as frozen, and shared memory is not why.** At the production tile with
+   half DV and 256 threads there is room for 2 CTAs (34816 B of the 102400 B per SM), which is the
+   16 warps the design was after. The register file refuses: 192 wanted against a 128 budget, paid
+   for in local memory (STACK 16 -> 112). My first read of this section claimed the opposite, that
+   Q pinned the CTA and 8 warps was the ceiling; that was arithmetic on one term of
+   `nbytes_shared_total` while the max() had other terms, and the device API says otherwise.
+2. **The spec's headline gain, 16 warps, is not reachable cleanly by any shape.** The candidates
+   that could hold it all pay in stack: half DV at 256 threads and occupancy 2 (STACK 112 at
+   ncols=64, 176 at ncols=32), quarter DV at 256 threads and occupancy 2 (STACK 48), and 4 CTAs at
+   128 threads (STACK 128 to 272). Nothing between 8 warps and 12 warps is spill-free.
+3. **12 warps is reachable clean**: half DV, ncols=32, nthreads=128, occupancy=3, at REG 168 of a
+   170 budget, STACK 16, 25216 B per CTA. That is the fallback the design section named ("the split
+   has to be along `ncols` instead, which is the fallback, not the plan"), and it is +50% warps
+   rather than the +100% this spec was written for.
+4. **The accumulator is not the register cost, so the mechanism is weaker than the design
+   assumed.** Quartering DV buys 32 registers at ncols=64 and exactly zero at ncols=32, against a
+   nominal accumulator of 128 and 64. There is a per-thread floor near 168 that does not move with
+   the accumulator; see the table in the previous section.
+5. **No config-row-only route exists.** Full DV measures 255 at ncols=64 and 231 at ncols=32, at
+   128 threads and at 256, and the number does not move between occupancy 2 (budget 256) and
+   occupancy 3 (budget 170) - nvcc leaves the count alone rather than squeezing it, so "over budget"
+   here means the shape cannot hold those warps. Halving the tile is worth 24 registers and the
+   170 budget is 61 away. The occupancy cannot be bought from the table.
+6. **What the surviving shapes cost, in L2 traffic.** Splitting DV by n makes n CTAs read the same
+   K while each reads only its own V slice, so per KV chunk the bytes go from `K + V` to
+   `n*K + V`; halving the query tile multiplies that by 2 again.
+
+   | shape | K reads | V reads | total KV bytes vs today | L2 at 63.0% x that |
+   |---|---|---|---|---|
+   | 12 warps: DV/2 + ncols/2 | 4x | 2x | 3.0x | 189% |
+   | 16 warps: DV/4, ncols=64 | 4x | 1x | 2.5x | 158% |
+
+   Both overshoot the pipe 005 measured at 63.0% while DRAM sat at 14.6% and the L2 hit rate at
+   95.7%: the traffic is already carried by L2 and there is no DRAM headroom to trade against it.
+   This column is arithmetic on read counts, not a measurement, and one ncu section set on a single
+   `flash_attn_ext_f16` call (L2 throughput plus the Block Limit columns) would settle it in one
+   run. But it points the same way as the floor in item 4 and as 009, where reaching occupancy on
+   MMQ measured -20.9%: on this card these kernels are not short of warps.
+
+### stream-K cannot be declined on sm89
+
+The Risk section assumed a first cut could "refuse the split for stream-K, the fixup kernel and
+the sparse gather". On this machine that is not a scoping option, it is a switch-off:
+`ggml_cuda_flash_attn_ext_mma_f16_case` always calls `launch_fattn` with `stream_k = true`
+(`fattn-mma-f16.cuh:2112`), and `should_use_stream_k` returns true for every NVIDIA cc at or above
+Ada (`fattn-common.cuh:1144`) before it looks at tile efficiency. So the KV range is always
+partitioned over `blockIdx.x`, and a DV half has to live alongside that partitioning rather than
+replace it.
+
+The seam for doing that is narrow. `dst_tmp_meta` is `blocks_num.x * ncols * (2 + DV/2)` float2
+(`fattn-common.cuh:1176`), where the leading 2 float2 hold S and the row max and the rest is the
+accumulator slice. Both halves compute identical S and max, so the slot can become
+`2*2 + DV/2` float2 per column, each half owning its own meta pair and its own `DV/4` floats, and
+`flash_attn_stream_k_fixup_uniform` / `_general` gain one stride to read. No cross-CTA reduction is
+added; the halves stay disjoint, which was the property the design section relied on.
+
 
 ## Note on the register gate, 2026-09-24
 

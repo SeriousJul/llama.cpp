@@ -17,7 +17,7 @@ closed, with the code kept as a patch under specs/artifacts/.
 | 005-fattn-mma-quantized-kv.md | q8_0 KV read by the MMA attention kernel | done (2026-09-24, verdict: no change): removable part is 3.1%, kernel is tensor/L2 bound at 212 registers per thread, both table retunes lose |
 | 006-gdn-chunked-prefill.md | Chunked gated-delta-net prefill kernel | closed (2026-09-24), verdict no change. Shipped gain is increments 1 and 2, committed as 42d24e195 local only (SSM kernel x1.86, 27B pp4096 +7.3 %). Chunked stages 1 and 2 were built and are preserved as `specs/artifacts/006-chunked-scaffold.patch`; measured paired ABBA they are -10.0 % (C=16) and -20.2 % (C=64) on 9B pp4096, and stage 3 was not written because the one shape that could rescue it, `M = 16` mma tiles, has never been measured. Findings that stand: one block per (head, sequence) is 32 CTAs against 128 SMs; f16 tiles land on the seam's 1e-7 NMSE bar by construction; the gate has to be carried in log space |
 | 007-fuse-glu-into-mmq-quantize.md | GLU folded into the q8_1 pre-quantization | done (2026-09-23, committed 247376881 local only): +1.5% 27B pp4096, perplexity identical |
-| 008-fattn-dv-split-occupancy.md | Split DV across CTAs to buy attention occupancy | active (ready-for-agent); from 005's register map: DK=256 tile is at 255 of 255 registers, VKQ accumulator is 128 of them |
+| 008-fattn-dv-split-occupancy.md | Split DV across CTAs to buy attention occupancy | active, both gates measured (2026-09-26), criterion 1 fails. A half-DV CTA at the production tile wants 192 registers against a 128 budget, and forcing it pays in local memory (STACK 16 -> 112). Shared memory does not refuse it - 34816 B/CTA leaves room for 2 CTAs, so 16 warps was on the table; my first pass claimed otherwise from arithmetic on one term of a max(). Quartering DV is the only shape that meets 128 (REG 128, STACK 48) and half DV at ncols=32 is the only clean step up (REG 168/170, 12 warps). The premise itself broke: DV 128->64 buys 32 registers at ncols=64 and zero at ncols=32, so there is a ~168-register per-thread floor that is not the accumulator, and full DV never goes below 186 at any tile or pipeline setting. The reachable shapes need 2.5x-3x the KV reads against an L2 already at 63.0%. Decision pending |
 | 009-mmq-j-occupancy.md | J as the occupancy knob for the prefill GEMM | done (2026-09-24, verdict: no change): occupancy was reached and cost -20.9% on pp65536; every non-instruction-count route into MMQ is now measured and lost |
 | 010-mmq-scale-correction-epilogue.md | MMQ shared-memory traffic and the I = 128 assumption | done (2026-09-24, verdict: no change): six kernel routes into MMQ all closed; the epilogue cost is set by scale granularity, a format decision, not a kernel one |
 | 011-uvm-prefetch-hints.md | `cudaMemAdvise` / `cudaMemPrefetchAsync` on the UVM path | active (baseline 2026-09-26): managed == cudaMalloc while the working set fits (0.3% at q8_0 262K); at ~3.4 GiB spill decode falls 31.1 -> 0.6 t/s. The hints target that cliff |
@@ -365,6 +365,26 @@ the cols=8 vec kernel is 2x slower. See the spec.
   FP8 330, INT8 660. A design premised on "FP8 is 2x INT8" is wrong
   by 2x in the bad direction. Derive headroom from measured effective
   throughput (001's mul_mat_q timings) instead.
+- **A throwaway instantiation is the cheapest gate there is.** 008 froze a design on an
+  estimate of ~130 registers for a half-DV CTA. Compiling DKQ=256/DV=128 next to the shipping
+  rows and reading `cuobjdump -res-usage` on the object costs one file compile (~1 min) and
+  said 192, with STACK 16 -> 112 when launch bounds force the 128 budget. Do that before
+  writing any grid or fixup code, and before any benchmark.
+- **Ask the device which limit binds; do not hand-combine two of them.** 008's shared-memory
+  table was wrong in the permissive direction on the first pass: `nbytes_shared_total` is
+  `max(combine, max(Q, KV + mask))`, the Q term has no DV in it but the combine term scales with
+  `nwarps`, so reasoning from one term and ignoring the other produced a ceiling that did not
+  exist. Replay the launcher's own expression and call the same
+  `cudaOccupancyMaxActiveBlocksPerMultiprocessor` `launch_fattn` calls, with a dummy kernel whose
+  only relevant property is its thread count, so the register file cannot interfere and the smem
+  answer is the smem answer (`specs/artifacts/008-smem-occupancy.cu`). Read registers separately
+  from `cuobjdump -res-usage` on a probe instantiation, and take STACK, not just REG, as the
+  verdict: REG at the budget with STACK 7x baseline is the compiler paying the bill out of local
+  memory, which is what -23.9% looked like before it was a number.
+- **Read the launch path for unconditional dispatch before scoping a "first cut".** 008
+  planned to decline the split for stream-K, fixup and sparse. On sm89 `should_use_stream_k`
+  returns true for every NVIDIA cc >= Ada (`fattn-common.cuh:1144`) and the MMA case always
+  passes `stream_k = true`, so that scoping would have declined the feature everywhere.
 - **An unattributed number is not a ceiling.** 012 read `unaccounted`
   (924-994 MiB) for two days as a possible reclaim. It is a fixed
   per-process init cost: 976 MiB with 19.0 GiB of buffers, 976 MiB with

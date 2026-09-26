@@ -1,0 +1,45 @@
+# 008 register gate, 2026-09-26. CUDA 13.3 nvcc, arch 89, codegen flags from build-008.
+# Each call keeps the shipping tile knobs and changes only DV, nthreads and occupancy.
+# regenerate:
+#   for cfg in '128 2' '128 3' '256 2'; do bash specs/artifacts/008-reg-gate.sh 256 $cfg 32 64; done
+#   for cfg in '128 2' '128 3' '128 4' '256 1' '256 2'; do bash specs/artifacts/008-reg-gate.sh 128 $cfg 32 64; done
+#   for cfg in '128 2' '128 3' '256 2'; do bash specs/artifacts/008-reg-gate.sh 64 $cfg 32 64; done
+
+== DKQ=256 DV=256 nthreads=128 occupancy=2, budget 256 registers ==
+  ncols=64  REG 255 / budget 256  STACK   16  LOCAL   0  clean
+  ncols=64  REG 255 / budget 256  STACK   24  LOCAL   0  over budget or spills
+  ncols=32  REG 231 / budget 256  STACK   16  LOCAL   0  clean
+== DKQ=256 DV=256 nthreads=128 occupancy=3, budget 170 registers ==
+  ncols=64  REG 255 / budget 170  STACK   16  LOCAL   0  over budget or spills
+  ncols=64  REG 255 / budget 170  STACK   24  LOCAL   0  over budget or spills
+  ncols=32  REG 231 / budget 170  STACK   16  LOCAL   0  over budget or spills
+== DKQ=256 DV=256 nthreads=256 occupancy=2, budget 128 registers ==
+  ncols=64  REG 255 / budget 128  STACK   16  LOCAL   0  over budget or spills
+  ncols=64  REG 255 / budget 128  STACK   24  LOCAL   0  over budget or spills
+  ncols=32  REG 231 / budget 128  STACK   16  LOCAL   0  over budget or spills
+== DKQ=256 DV=128 nthreads=128 occupancy=2, budget 256 registers ==
+  ncols=64  REG 219 / budget 256  STACK   16  LOCAL   0  clean
+  ncols=32  REG 193 / budget 256  STACK   16  LOCAL   0  clean
+== DKQ=256 DV=128 nthreads=128 occupancy=3, budget 170 registers ==
+  ncols=64  REG 168 / budget 170  STACK   64  LOCAL   0  over budget or spills
+  ncols=32  REG 168 / budget 170  STACK   16  LOCAL   0  clean
+== DKQ=256 DV=128 nthreads=128 occupancy=4, budget 128 registers ==
+  ncols=64  REG 128 / budget 128  STACK  272  LOCAL   0  over budget or spills
+  ncols=32  REG 128 / budget 128  STACK  128  LOCAL   0  over budget or spills
+== DKQ=256 DV=128 nthreads=256 occupancy=1, budget 256 registers ==
+  ncols=64  REG 192 / budget 256  STACK   16  LOCAL   0  clean
+  ncols=32  REG 196 / budget 256  STACK   16  LOCAL   0  clean
+== DKQ=256 DV=128 nthreads=256 occupancy=2, budget 128 registers ==
+  ncols=64  REG 128 / budget 128  STACK  112  LOCAL   0  over budget or spills
+  ncols=32  REG 128 / budget 128  STACK  176  LOCAL   0  over budget or spills
+  ncols=32  REG 128 / budget 128  STACK  168  LOCAL   0  over budget or spills
+== DKQ=256 DV=64 nthreads=128 occupancy=2, budget 256 registers ==
+  ncols=64  REG 187 / budget 256  STACK   16  LOCAL   0  clean
+  ncols=32  REG 178 / budget 256  STACK   16  LOCAL   0  clean
+== DKQ=256 DV=64 nthreads=128 occupancy=3, budget 170 registers ==
+  ncols=64  REG 168 / budget 170  STACK   32  LOCAL   0  over budget or spills
+  ncols=64  REG 168 / budget 170  STACK   40  LOCAL   0  over budget or spills
+  ncols=32  REG 168 / budget 170  STACK   16  LOCAL   0  clean
+== DKQ=256 DV=64 nthreads=256 occupancy=2, budget 128 registers ==
+  ncols=64  REG 128 / budget 128  STACK   48  LOCAL   0  over budget or spills
+  ncols=32  REG 128 / budget 128  STACK   72  LOCAL   0  over budget or spills
