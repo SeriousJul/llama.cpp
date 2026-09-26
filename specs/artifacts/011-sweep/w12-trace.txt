@@ -1,0 +1,37 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/-0.01.805.544 E UVMDBG alloc 12726 MiB, managed total 12726 MiB
+\|/-\|/-\|/-\|/-\0.03.457.721 E UVMDBG alloc 16384 MiB, managed total 29110 MiB
+|/-\|/-\|/-\0.04.711.552 E UVMDBG alloc 149 MiB, managed total 29259 MiB
+|0.04.737.015 E UVMDBG alloc 378 MiB, managed total 29637 MiB
+0.04.780.982 E UVMDBG active check: managed 29637 MiB total 24084 MiB -> ON
+/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\ 
+
+▄▄ ▄▄
+██ ██
+██ ██  ▀▀█▄ ███▄███▄  ▀▀█▄    ▄████ ████▄ ████▄
+██ ██ ▄█▀██ ██ ██ ██ ▄█▀██    ██    ██ ██ ██ ██
+██ ██ ▀█▄██ ██ ██ ██ ▀█▄██ ██ ▀████ ████▀ ████▀
+                                    ██    ██
+                                    ▀▀    ▀▀
+
+build      : b11196-771b97274
+model      : /home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf
+ftype      : IQ4_XS - 4.25 bpw
+modalities : text
+
+available commands:
+  /exit or Ctrl+C     stop or exit
+  /regen              regenerate the last response
+  /clear              clear the chat history
+  /read <file>        add a text file
+  /glob <pattern>     add text files using globbing pattern
+
+
+
+> the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient ... (truncated)
+
+[ Prompt: 0.0 t/s | Generation: 0.0 t/s ]
+
+
+Exiting...

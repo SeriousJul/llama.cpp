@@ -1,0 +1,41 @@
+
+
+Loading model... |-\|/-0.00.574.059 E UVMDBG alloc 12726 MiB, managed total 12726 MiB
+\|/-\|/-\|/-\|/-\0.02.267.063 E UVMDBG alloc 272 MiB, managed total 12998 MiB
+0.02.277.690 E UVMDBG alloc 149 MiB, managed total 13147 MiB
+0.02.286.504 E UVMDBG alloc 130 MiB, managed total 13278 MiB
+0.02.294.907 E UVMDBG active check: managed 13278 MiB total 24084 MiB -> off
+|/ 
+
+▄▄ ▄▄
+██ ██
+██ ██  ▀▀█▄ ███▄███▄  ▀▀█▄    ▄████ ████▄ ████▄
+██ ██ ▄█▀██ ██ ██ ██ ▄█▀██    ██    ██ ██ ██ ██
+██ ██ ▀█▄██ ██ ██ ██ ▀█▄██ ██ ▀████ ████▀ ████▀
+                                    ██    ██
+                                    ▀▀    ▀▀
+
+build      : b11196-771b97274
+model      : /home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf
+ftype      : IQ4_XS - 4.25 bpw
+modalities : text
+
+available commands:
+  /exit or Ctrl+C     stop or exit
+  /regen              regenerate the last response
+  /clear              clear the chat history
+  /read <file>        add a text file
+  /glob <pattern>     add text files using globbing pattern
+
+
+
+> Question: what is 17 times 23? Answer:
+
+[Start thinking]
+
+We need answer user's simple math question. Need final answer. Compute 17*23 = 391. Provide concise.
+
+[ Prompt: 431.1 t/s | Generation: 54.2 t/s ]
+
+
+Exiting...

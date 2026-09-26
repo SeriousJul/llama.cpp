@@ -1,0 +1,43 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\ 
+
+▄▄ ▄▄
+██ ██
+██ ██  ▀▀█▄ ███▄███▄  ▀▀█▄    ▄████ ████▄ ████▄
+██ ██ ▄█▀██ ██ ██ ██ ▄█▀██    ██    ██ ██ ██ ██
+██ ██ ▀█▄██ ██ ██ ██ ▀█▄██ ██ ▀████ ████▀ ████▀
+                                    ██    ██
+                                    ▀▀    ▀▀
+
+build      : b11196-771b97274
+model      : /home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf
+ftype      : IQ4_XS - 4.25 bpw
+modalities : text
+
+available commands:
+  /exit or Ctrl+C     stop or exit
+  /regen              regenerate the last response
+  /clear              clear the chat history
+  /read <file>        add a text file
+  /glob <pattern>     add text files using globbing pattern
+
+
+
+> the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor the quick brown fox jumps over the lazy dog while sensors record the ambient ... (truncated)
+
+[Start thinking]
+
+The user has sent a very long message consisting of the same sentence repeated many times: "the quick brown fox jumps over the lazy dog while sensors record the ambient telemetry of the plant floor"
+
+This appears to be a test or stress test message. There's no actual question or request here. The user hasn't asked me to do anything specific - they've just repeated this sentence hundreds of times.
+
+I should respond briefly and acknowledge what I see, without being overly verbose or repeating the pattern myself. I'll keep it short and friendly.
+[End thinking]
+
+I see a lot of foxes jumping over a lot of dogs, with a
+
+[ Prompt: 1054.2 t/s | Generation: 0.7 t/s ]
+
+
+Exiting...

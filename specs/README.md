@@ -20,8 +20,18 @@ closed, with the code kept as a patch under specs/artifacts/.
 | 008-fattn-dv-split-occupancy.md | Split DV across CTAs to buy attention occupancy | active (ready-for-agent); from 005's register map: DK=256 tile is at 255 of 255 registers, VKQ accumulator is 128 of them |
 | 009-mmq-j-occupancy.md | J as the occupancy knob for the prefill GEMM | done (2026-09-24, verdict: no change): occupancy was reached and cost -20.9% on pp65536; every non-instruction-count route into MMQ is now measured and lost |
 | 010-mmq-scale-correction-epilogue.md | MMQ shared-memory traffic and the I = 128 assumption | done (2026-09-24, verdict: no change): six kernel routes into MMQ all closed; the epilogue cost is set by scale granularity, a format decision, not a kernel one |
+| 011-uvm-prefetch-hints.md | `cudaMemAdvise` / `cudaMemPrefetchAsync` on the UVM path | active (baseline 2026-09-26): managed == cudaMalloc while the working set fits (0.3% at q8_0 262K); at ~3.4 GiB spill decode falls 31.1 -> 0.6 t/s. The hints target that cliff |
+| 012-phase-arena-workspace-reuse.md | Return prefill graphs and pp workspace to the decode KV budget | measured 2026-09-26, verdict pending: the pp-shape workspace is only 861.53 - 628.96 = 233 MiB (~7K tokens); graph captures not yet isolated. Fold into 013 or close |
+| 013-pipelined-kv-streaming.md | Block-granular, lookahead KV staging beyond VRAM | deferred, gate zero answered: q8_0 ctx_max ~285K > production need 160K; re-open only for f16 >150K, q8 >280K, or a second co-located model |
 
 Each spec states: measured problem, design, acceptance criteria, test method.
+
+011-013 are a different family from 001-010: they come from the 2026-10 analysis of
+`RaymondHuang210129/llama.cpp-adaptive-kv-streaming` (adaptive KV streaming for
+long-context on small-VRAM CUDA boxes). None of them copies code from that fork. 011
+addresses the missing page hints in our UVM path, 012 the phase-idle bytes its arena
+reclaims, 013 the lookahead streaming its ring adds over our `-nkvo` scheduler path. All three are
+gated: no patch until each file carries its own baseline, per the standing rule.
 
 `specs/artifacts/` holds the throwaway validators, the ncu text dumps and the paired
 A/B raw data the numbers in these files come from. They are not part of the build and
@@ -306,6 +316,18 @@ the cols=8 vec kernel is 2x slower. See the spec.
   rejecting any config whose count does not match the tiles it should issue. Pass `ldmatrix`
   addresses as 64-bit with an `l` constraint like `mma.cuh` does; a `(unsigned)` cast faults at
   15 KiB of shared memory and can pass unnoticed in a smaller probe.
+- **`llama-cli` under a non-TTY stdin can spin the conversation loop.** With
+  `-f prompt.txt` and no `-st`/`--single-turn`, it enters interactive mode against
+  an EOF'd stdin and emits `> ` forever: one such run grew a 9.9 GB artifact file
+  and looked exactly like a UVM thrash hang until `wc -c` said otherwise (2026-09-26,
+  window 3). Always pass `-st`, always per-run `timeout`, and check the artifact
+  size before believing a hang is a measurement.
+- **`pkill -f` matches the invoking shell's own command line.** Two windows were
+  self-killed (rc 143) because the kill pattern text appeared in the bash -c line
+  running it. For port-owned single processes kill by port: `fuser -k PORT/tcp`.
+- **Size synthetic prompts with `llama-tokenize -m MODEL --stdin --show-count`, not
+  bytes.** This filler tokenizes at 5.58 B/token, so a 657 KB "260K" file was 117.8K
+  tokens and three matrix rows were mislabeled until recounted (2026-09-26).
 - **Read mma layouts out of `mma.cuh`, not out of the PTX tables.** 006 stage 3 lost a session step
   to a hand-written `ldmatrix.x2.trans` for the B operand of `m16n8k16.row.col`: validation against a
   CPU matmul showed both column registers getting the same `n`. `mma.cuh`'s `tile<8,8,T>`

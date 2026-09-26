@@ -1,0 +1,12 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/0.01.686.970 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 282.02 MiB on device 0: cudaMalloc failed: out of memory
+0.01.686.974 E ggml_gallocr_reserve_n_impl: failed to allocate CUDA0 buffer of size 295715072
+0.01.686.974 E graph_reserve: failed to allocate compute buffers
+0.01.696.345 E llama_init_from_model: failed to initialize the context: failed to allocate compute pp buffers
+0.01.696.350 E cmn  common_init_: failed to create context with model '/home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf'
+0.01.696.352 E cmn  common_init_: failed to create context with model '/home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf'
+0.01.696.356 E srv    load_model: failed to create_context with model '/home/seriousjul/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ4_XS.gguf'
+0.01.696.778 E srv  llama_server: exiting due to model loading error
+-llama_server exited with code 1
+\ Error: the server exited before becoming ready

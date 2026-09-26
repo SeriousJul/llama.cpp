@@ -1,0 +1,66 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/-\|/-\|0.02.347.257 E /home/seriousjul/src/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:110: CUDA error
+CUDA error: operation failed due to a previous error during capture
+0.02.347.262 E   current device: 0, in function ggml_cuda_kernel_launch at /home/seriousjul/src/llama.cpp/ggml/src/ggml-cuda/common.cuh:1707
+0.02.347.262 E   cudaGetLastError()
+/[New LWP 737192]
+[New LWP 737162]
+[New LWP 737161]
+[New LWP 737160]
+[New LWP 737159]
+[New LWP 737158]
+[New LWP 737157]
+[New LWP 737156]
+[New LWP 737155]
+[New LWP 737154]
+[New LWP 737153]
+[New LWP 737152]
+[New LWP 737151]
+[New LWP 737150]
+[New LWP 737149]
+[New LWP 737148]
+[New LWP 737147]
+[New LWP 737146]
+[New LWP 737145]
+[New LWP 737144]
+[New LWP 737143]
+[New LWP 737142]
+[New LWP 737141]
+[New LWP 737140]
+[New LWP 737139]
+[New LWP 737138]
+[New LWP 737137]
+[New LWP 737136]
+[New LWP 737135]
+[New LWP 737134]
+[New LWP 737133]
+[New LWP 737132]
+[New LWP 737131]
+[New LWP 737130]
+[New LWP 737129]
+[New LWP 737128]
+[New LWP 737127]
+[New LWP 737126]
+[New LWP 737125]
+[New LWP 737124]
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.archlinux.org>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+0x000073d008ca0952 in ?? () from /usr/lib/libc.so.6
+#0  0x000073d008ca0952 in ?? () from /usr/lib/libc.so.6
+#1  0x000073d008ce4aed in clock_nanosleep () from /usr/lib/libc.so.6
+#2  0x000073d008cf0f27 in nanosleep () from /usr/lib/libc.so.6
+#3  0x000073d01572d945 in cli_server::wait_ready(std::function<bool ()>) () from /home/seriousjul/src/llama.cpp/build-011/bin/libllama-cli-impl.so
+#4  0x000073d01572ac7e in cli_context::init() () from /home/seriousjul/src/llama.cpp/build-011/bin/libllama-cli-impl.so
+#5  0x000073d0157135ee in llama_cli(int, char**) () from /home/seriousjul/src/llama.cpp/build-011/bin/libllama-cli-impl.so
+#6  0x000073d008c27781 in ?? () from /usr/lib/libc.so.6
+#7  0x000073d008c278b9 in __libc_start_main () from /usr/lib/libc.so.6
+#8  0x00005564fc66a075 in _start ()
+[Inferior 1 (process 737121) detached]
+timeout: the monitored command dumped core

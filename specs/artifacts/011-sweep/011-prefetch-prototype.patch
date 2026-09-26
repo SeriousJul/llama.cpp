@@ -1,0 +1,269 @@
+diff --git i/ggml/src/ggml-cuda/ggml-cuda.cu w/ggml/src/ggml-cuda/ggml-cuda.cu
+index d3ed7c9fc..c9e9c8480 100644
+--- i/ggml/src/ggml-cuda/ggml-cuda.cu
++++ w/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -86,6 +86,7 @@
+ #include <map>
+ #include <memory>
+ #include <mutex>
++#include <unordered_set>
+ #include <cstdarg>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -138,11 +139,22 @@ int ggml_cuda_get_device() {
+     return id;
+ }
+ 
++static std::atomic<size_t> ggml_cuda_managed_bytes[GGML_CUDA_MAX_DEVICES];
++
+ static cudaError_t ggml_cuda_device_malloc(void ** ptr, size_t size, int device) {
+     ggml_cuda_set_device(device);
+     cudaError_t err;
+     if (getenv("GGML_CUDA_ENABLE_UNIFIED_MEMORY") != nullptr) {
+         err = cudaMallocManaged(ptr, size);
++#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++        if (err == cudaSuccess) {
++            const size_t tot = ggml_cuda_managed_bytes[device].fetch_add(size, std::memory_order_relaxed) + size;
++            static int budget = 5;
++            if (budget-- > 0) {
++                GGML_LOG_ERROR("UVMDBG alloc %zu MiB, managed total %zu MiB\n", size >> 20, tot >> 20);
++            }
++        }
++#endif
+ #if defined(GGML_USE_HIP)
+         if (err == hipSuccess) {
+             // hipMemAdviseSetCoarseGrain is an optional performance hint;
+@@ -161,6 +173,29 @@ static cudaError_t ggml_cuda_device_malloc(void ** ptr, size_t size, int device)
+ 
+             err = cudaMalloc(ptr, size);
+         }
++#elif !defined(GGML_USE_MUSA)
++        if (err == cudaSuccess) {
++            // bias pages toward the GPU: device mappings persist between accesses
++            // instead of fault-and-migrate on every touch (best-effort hint)
++            // A/B gate: blanket SetAccessedBy regressed pp 7.8x on the cliff row
++            // (window 5); kept opt-in only. GGML_CUDA_UVM_HINTS=1 enables.
++            static const bool uvm_hints = [] {
++                const char * e = getenv("GGML_CUDA_UVM_HINTS");
++                return e != nullptr && atoi(e) != 0;
++            }();
++            if (uvm_hints) {
++                const int phys_dev = ggml_cuda_get_physical_device(device);
++#if CUDART_VERSION >= 12020
++                cudaMemLocation loc;
++                loc.type = cudaMemLocationTypeDevice;
++                loc.id   = phys_dev;
++                (void)cudaMemAdvise(*ptr, size, cudaMemAdviseSetAccessedBy, loc);
++#else
++                (void)cudaMemAdvise(*ptr, size, cudaMemAdviseSetAccessedBy, phys_dev);
++#endif
++                (void)cudaGetLastError(); // clear any error from unsupported configs
++            }
++        }
+ #endif // defined(GGML_USE_HIP)
+     } else {
+         err = cudaMalloc(ptr, size);
+@@ -305,6 +340,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
+ 
+         info.default_tensor_split[id] = total_vram;
+         total_vram += device_vram;
++        info.devices[id].total_vram = device_vram;
+         info.devices[id].integrated = false; // Temporarily disabled due to issues with corrupted output (e.g. #15034)
+         info.devices[id].nsm        = prop.multiProcessorCount;
+         info.devices[id].smpb       = prop.sharedMemPerBlock;
+@@ -721,14 +757,28 @@ ggml_backend_cuda_context::~ggml_backend_cuda_context() {
+ struct ggml_backend_cuda_buffer_context {
+     int device;
+     void * dev_ptr = nullptr;
++    size_t size;
+     std::string name;
++    bool is_managed = false;
+ 
+-    ggml_backend_cuda_buffer_context(int device, void * dev_ptr) :
+-        device(device), dev_ptr(dev_ptr),
++    ggml_backend_cuda_buffer_context(int device, void * dev_ptr, size_t size) :
++        device(device), dev_ptr(dev_ptr), size(size),
+         name(GGML_CUDA_NAME + std::to_string(device)) {
++#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++        cudaPointerAttributes attrs{};
++        if (cudaPointerGetAttributes(&attrs, dev_ptr) == cudaSuccess) {
++            is_managed = attrs.type == cudaMemoryTypeManaged;
++        }
++        (void)cudaGetLastError(); // pointer may belong to another device or be unknown
++#endif
+     }
+ 
+     ~ggml_backend_cuda_buffer_context() {
++#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++        if (is_managed) {
++            ggml_cuda_managed_bytes[device].fetch_sub(size, std::memory_order_relaxed);
++        }
++#endif
+         CUDA_CHECK(cudaFree(dev_ptr));
+     }
+ };
+@@ -889,7 +939,7 @@ static ggml_backend_buffer_t ggml_backend_cuda_buffer_type_alloc_buffer(ggml_bac
+         return nullptr;
+     }
+ 
+-    ggml_backend_cuda_buffer_context * ctx = new ggml_backend_cuda_buffer_context(buft_ctx->device, dev_ptr);
++    ggml_backend_cuda_buffer_context * ctx = new ggml_backend_cuda_buffer_context(buft_ctx->device, dev_ptr, size);
+ 
+     return ggml_backend_buffer_init(buft, ggml_backend_cuda_buffer_interface, ctx, size);
+ }
+@@ -4231,6 +4281,109 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+     return 0;
+ }
+ 
++#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++static bool ggml_cuda_uvm_prefetch_enabled(void) {
++    static const bool enabled = [] {
++        if (getenv("GGML_CUDA_ENABLE_UNIFIED_MEMORY") == nullptr) {
++            return false;
++        }
++        const char * e = getenv("GGML_CUDA_UVM_PREFETCH");
++        return e == nullptr || atoi(e) != 0;
++    }();
++    return enabled;
++}
++
++// the lookahead path trades CUDA graphs for bulk DMA: worth it only when the managed
++// footprint actually spills past VRAM, so gate on that (spec 011)
++static bool ggml_cuda_uvm_prefetch_active(int device) {
++    if (!ggml_cuda_uvm_prefetch_enabled()) {
++        return false;
++    }
++    const size_t total = ggml_cuda_info().devices[device].total_vram;
++    const size_t managed = ggml_cuda_managed_bytes[device].load(std::memory_order_relaxed);
++    static bool logged = false;
++    if (!logged) {
++        logged = true;
++        GGML_LOG_ERROR("UVMDBG active check: managed %zu MiB total %zu MiB -> %s\n",
++                managed >> 20, total >> 20, managed > (size_t)(0.9 * (double) total) ? "ON" : "off");
++    }
++    return managed > (size_t)(0.9 * (double) total);
++}
++
++// decode-shaped cgraph: FA nodes carry <=16 tokens (tg or short verify batch).
++// lookahead prefetch and its graph trade only make sense for decode graphs.
++static bool ggml_cuda_cgraph_is_decode(ggml_cgraph * cgraph) {
++    // FA q rows = heads x tokens: 24 x 1..8 on decode/verify vs 24 x 512 on pp
++    for (int i = 0; i < cgraph->n_nodes; i++) {
++        const ggml_tensor * node = cgraph->nodes[i];
++        if (node->op == GGML_OP_FLASH_ATTN_EXT && node->src[0] != nullptr && ggml_nrows(node->src[0]) > 1024) {
++            return false;
++        }
++    }
++    return true;
++}
++
++// stage the src tensors of the nodes up to W ahead onto the device, on the compute
++// stream, just before the current node runs: bulk just-in-time DMA instead of the
++// fault storm at the VRAM overflow cliff (spec 011)
++static void ggml_cuda_uvm_prefetch_ahead(
++        ggml_backend_cuda_context * cuda_ctx,
++        const ggml_cgraph * cgraph,
++        int i,
++        std::unordered_set<const void *> & staged) {
++    constexpr int W = 64;  // ~one decoder layer of nodes in the tg graph
++
++    static_assert(GGML_MAX_DIMS == 4, "row-stride scan below assumes 4 dims");
++
++    const int phys_dev = ggml_cuda_get_physical_device(cuda_ctx->device);
++
++    for (int j = i + 1; j <= i + W && j < cgraph->n_nodes; ++j) {
++        const ggml_tensor * node = cgraph->nodes[j];
++        for (int s = 0; s < GGML_MAX_SRC; ++s) {
++            const ggml_tensor * src = node->src[s];
++            if (src == nullptr || src->buffer == nullptr || !ggml_backend_buffer_is_cuda(src->buffer)) {
++                continue;
++            }
++            if (node->op == GGML_OP_SET_ROWS) {
++                // the large srcs are full-capacity cache destinations: row stores
++                // touch a few KB of active cells, demand paging is cheaper than staging
++                continue;
++            }
++            const ggml_backend_cuda_buffer_context * bctx =
++                (const ggml_backend_cuda_buffer_context *) src->buffer->context;
++            if (!bctx->is_managed || !staged.insert(src->data).second) {
++                continue;
++            }
++
++            size_t nbytes = ggml_nbytes(src);
++            if (node->op == GGML_OP_FLASH_ATTN_EXT && (s == 1 || s == 2)) {
++                // KV views span the full cache capacity: stage only the used prefix
++                const int32_t n_kv_max = ggml_get_op_params_i32(node, 4);
++                int d_cells = 1;
++                for (int d = 2; d < GGML_MAX_DIMS; d++) {
++                    if (src->ne[d] > 1 && src->nb[d] > src->nb[d_cells]) {
++                        d_cells = d;
++                    }
++                }
++                if (n_kv_max > 0 && src->ne[d_cells] >= (int64_t) n_kv_max) {
++                    nbytes = (size_t) n_kv_max * src->nb[d_cells];
++                }
++            }
++#if CUDART_VERSION >= 12080
++            cudaMemLocation loc;
++            loc.type = cudaMemLocationTypeDevice;
++            loc.id   = phys_dev;
++            (void)cudaMemPrefetchAsync(src->data, nbytes, loc, /* flags */ 0, cuda_ctx->stream());
++#else
++            (void)cudaMemPrefetchAsync(src->data, nbytes, phys_dev, cuda_ctx->stream());
++#endif
++            (void)cudaGetLastError(); // best effort: a failed prefetch cannot break the graph
++
++        }
++    }
++}
++#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++
+ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required, const void * graph_key) {
+     bool graph_evaluated_or_captured = false;
+ 
+@@ -4267,6 +4420,14 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+         if (!use_cuda_graph || cuda_graph_update_required) {
+             [[maybe_unused]] int prev_i = 0;
+ 
++#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++            std::unordered_set<const void *> uvm_staged;
++            const bool uvm_prefetch = ggml_cuda_uvm_prefetch_active(cuda_ctx->device) &&
++                                      ggml_cuda_cgraph_is_decode(cgraph);
++#else
++            const bool uvm_prefetch = false;
++#endif
++
+             if (stream_ctx.concurrent_events.size() > 0) {
+                 should_launch_concurrent_events = true;
+                 for (const auto & [tensor, event] : stream_ctx.concurrent_events) {
+@@ -4331,6 +4492,15 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
+ 
+             for (int i = 0; i < cgraph->n_nodes; i++) {
+                 ggml_tensor * node = cgraph->nodes[i];
++
++#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++                if (uvm_prefetch) {
++                    ggml_cuda_uvm_prefetch_ahead(cuda_ctx, cgraph, i, uvm_staged);
++                }
++#else
++                GGML_UNUSED(uvm_prefetch);
++#endif
++
+                 if (is_concurrent_event_active) {
+                     GGML_ASSERT(concurrent_event);
+ 
+@@ -4482,7 +4652,14 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend,
+ 
+     ggml_cuda_graph * graph = cuda_ctx->cuda_graph(graph_key);
+     if (graph->is_enabled()) {
++#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
++        // lookahead prefetch cannot be captured into graphs: take the host loop directly
++        const bool graph_compatible = !(ggml_cuda_uvm_prefetch_active(cuda_ctx->device) &&
++                                        ggml_cuda_cgraph_is_decode(cgraph)) &&
++                                      ggml_cuda_graph_check_compability(cgraph);
++#else
+         const bool graph_compatible = ggml_cuda_graph_check_compability(cgraph);
++#endif
+         if (graph_compatible) {
+             const bool properties_changed = ggml_cuda_graph_update_required(cuda_ctx, cgraph);
+ 
